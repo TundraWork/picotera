@@ -113,7 +113,7 @@ func (s *Server) handleUpsertProject(ctx context.Context, in *contract.UpsertPro
 		return nil, huma.Error500InternalServerError("failed to upsert project", err)
 	}
 
-	s.projectRouter.Invalidate()
+	s.projectRouter.InvalidateAccount(sess.Account.ID)
 
 	v, err := contract.ToProjectView(&row)
 	if err != nil {
@@ -138,6 +138,6 @@ func (s *Server) handleDeleteProject(ctx context.Context, in *contract.DeletePro
 		// Either doesn't exist or belongs to another account — same 404.
 		return nil, huma.Error404NotFound("project not found")
 	}
-	s.projectRouter.Invalidate()
+	s.projectRouter.InvalidateAccount(sess.Account.ID)
 	return &struct{}{}, nil
 }

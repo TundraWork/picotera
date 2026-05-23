@@ -137,28 +137,29 @@ func (q *Queries) InsertProjectIfNotExists(ctx context.Context, arg InsertProjec
 	return i, err
 }
 
-const listProjectPaths = `-- name: ListProjectPaths :many
-SELECT id AS project_id, account_id, jsonb_array_elements_text(paths) AS path
+const listProjectPathsByAccount = `-- name: ListProjectPathsByAccount :many
+SELECT id AS project_id, jsonb_array_elements_text(paths) AS path
 FROM project
-WHERE jsonb_array_length(paths) > 0
+WHERE account_id = $1 AND jsonb_array_length(paths) > 0
 `
 
-type ListProjectPathsRow struct {
+type ListProjectPathsByAccountRow struct {
 	ProjectID int32  `json:"projectId"`
-	AccountID int32  `json:"accountId"`
 	Path      string `json:"path"`
 }
 
-func (q *Queries) ListProjectPaths(ctx context.Context) ([]ListProjectPathsRow, error) {
-	rows, err := q.db.Query(ctx, listProjectPaths)
+// Per-account paths fetch. The router lazily loads one account's bucket on
+// first match, instead of eagerly pulling every user's projects into memory.
+func (q *Queries) ListProjectPathsByAccount(ctx context.Context, accountID int32) ([]ListProjectPathsByAccountRow, error) {
+	rows, err := q.db.Query(ctx, listProjectPathsByAccount, accountID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []ListProjectPathsRow
+	var items []ListProjectPathsByAccountRow
 	for rows.Next() {
-		var i ListProjectPathsRow
-		if err := rows.Scan(&i.ProjectID, &i.AccountID, &i.Path); err != nil {
+		var i ListProjectPathsByAccountRow
+		if err := rows.Scan(&i.ProjectID, &i.Path); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

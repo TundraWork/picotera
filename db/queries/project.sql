@@ -28,10 +28,12 @@ RETURNING *;
 -- name: DeleteProject :execrows
 DELETE FROM project WHERE id = $1 AND account_id = $2;
 
--- name: ListProjectPaths :many
-SELECT id AS project_id, account_id, jsonb_array_elements_text(paths) AS path
+-- name: ListProjectPathsByAccount :many
+-- Per-account paths fetch. The router lazily loads one account's bucket on
+-- first match, instead of eagerly pulling every user's projects into memory.
+SELECT id AS project_id, jsonb_array_elements_text(paths) AS path
 FROM project
-WHERE jsonb_array_length(paths) > 0;
+WHERE account_id = $1 AND jsonb_array_length(paths) > 0;
 
 -- name: UpsertProjectSeen :exec
 UPDATE project

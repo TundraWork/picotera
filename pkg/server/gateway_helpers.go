@@ -699,7 +699,7 @@ func (s *Server) resolveProjectForAccount(ctx context.Context, accountID int32, 
 			"path":       primary,
 		}).Warn("auth.project_auto_created")
 	}
-	s.projectRouter.Invalidate()
+	s.projectRouter.InvalidateAccount(accountID)
 	return pgtype.Int4{Int32: row.ID, Valid: true}
 }
 

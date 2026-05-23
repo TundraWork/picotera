@@ -293,6 +293,11 @@ func (s *Server) handleDeleteAccount(ctx context.Context, in *deleteAccountIn) (
 	// them so browsers are signed out immediately.
 	_, _ = s.sessionStore.RevokeAllForAccount(ctx, in.Body.ID)
 
+	// CASCADE removed the account's projects (and via api_key CASCADE, the
+	// keys); drop the router's stale bucket so a future request from another
+	// account that shares the path doesn't see a phantom project id.
+	s.projectRouter.InvalidateAccount(in.Body.ID)
+
 	return &struct{}{}, nil
 }
 

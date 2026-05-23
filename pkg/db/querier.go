@@ -100,7 +100,9 @@ type Querier interface {
 	ListOverviewSpeedSeries(ctx context.Context, arg ListOverviewSpeedSeriesParams) ([]ListOverviewSpeedSeriesRow, error)
 	ListOverviewTraceCountsByDimension(ctx context.Context, arg ListOverviewTraceCountsByDimensionParams) ([]ListOverviewTraceCountsByDimensionRow, error)
 	ListPendingInvitations(ctx context.Context) ([]Enrollment, error)
-	ListProjectPaths(ctx context.Context) ([]ListProjectPathsRow, error)
+	// Per-account paths fetch. The router lazily loads one account's bucket on
+	// first match, instead of eagerly pulling every user's projects into memory.
+	ListProjectPathsByAccount(ctx context.Context, accountID int32) ([]ListProjectPathsByAccountRow, error)
 	ListProjectsByAccount(ctx context.Context, accountID int32) ([]Project, error)
 	ListProviderEndpoints(ctx context.Context, providerID pgtype.Int4) ([]ProviderEndpoint, error)
 	ListRequestSpansOwnedBy(ctx context.Context, arg ListRequestSpansOwnedByParams) ([]ListRequestSpansOwnedByRow, error)

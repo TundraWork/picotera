@@ -1,17 +1,31 @@
 // Package server — project_router.go
 //
-// In-memory cache of every (account_id, project_id, path) tuple derived from
-// the project table's `paths` JSONB array. Used by project_extractor.go to
-// map a candidate path string to a project id within a single account's
-// namespace via longest-prefix wins.
+// In-memory longest-prefix matcher from a project's path candidates to a
+// project id, scoped per account. Projects are user-bound: two users with
+// the same paths must not see each other's project ids, so every lookup
+// is keyed by account_id.
 //
-// Buckets are keyed by account_id; lookups never cross accounts (projects
-// are user-bound, two users may legitimately have the same paths). The
-// endpoint router stays globally keyed; only this router became per-account.
+// Hot-path constraint: the gateway resolves a project on every request,
+// so we cannot afford a DB round-trip per call. The router caches each
+// account's entries on first use and serves subsequent calls from
+// memory; the endpoint router uses the same pattern but with a single
+// global bucket (endpoints are admin-configured, not user-bound).
 //
-// Mirrors endpoint_router.go: lazy load on first Match, explicit Invalidate()
-// on every project mutation. Any future writer of the project table MUST call
-// Server.projectRouter.Invalidate() at the same site.
+// Multi-user design notes:
+//   - Buckets load lazily, ONE account at a time. We never fetch every
+//     user's projects in a single query — that would scale with total
+//     user count and the cache would hold rows for accounts that may
+//     never call the gateway.
+//   - InvalidateAccount(id) drops one bucket; project mutations use it.
+//     Invalidate() (global) stays for rare cases (e.g., a future schema
+//     migration). Without per-account invalidation, every user mutation
+//     would thrash every other user's cache.
+//   - A "loaded empty" account is represented by a non-nil zero-length
+//     slice in byAcct so we don't repeatedly hit the DB for accounts
+//     that genuinely have no projects.
+//
+// Any future writer of the project table MUST call
+// Server.projectRouter.InvalidateAccount(accountID) at the same site.
 package server
 
 import (
@@ -31,49 +45,53 @@ type projectEntry struct {
 type projectRouter struct {
 	queries *db.Queries
 
-	mu       sync.RWMutex
-	byAcct   map[int32][]projectEntry // per-account, each slice sorted: len(path) desc, then projectID asc
-	loaded   bool
+	mu     sync.RWMutex
+	byAcct map[int32][]projectEntry // per-account, each slice sorted: len(path) desc, then projectID asc
 }
 
 func newProjectRouter(q *db.Queries) *projectRouter {
-	return &projectRouter{queries: q}
+	return &projectRouter{
+		queries: q,
+		byAcct:  make(map[int32][]projectEntry),
+	}
 }
 
-// Match walks the cached entries for accountID (longest-path first) and
-// returns the project id of the first entry whose path is a prefix of any
-// candidate. Returns (0, false) when no entry matches, candidates is empty,
-// or accountID has no projects.
+// Match returns the project id whose path is a prefix of any candidate for
+// accountID, longest path first. Returns (0, false) when no entry matches,
+// candidates is empty, or accountID is zero. Loads the account's bucket on
+// first use; subsequent calls are served from memory.
 func (r *projectRouter) Match(ctx context.Context, accountID int32, candidates []string) (int32, bool, error) {
 	if accountID == 0 || len(candidates) == 0 {
 		return 0, false, nil
 	}
 
 	r.mu.RLock()
-	if r.loaded {
-		id, ok := r.matchLocked(accountID, candidates)
+	if entries, ok := r.byAcct[accountID]; ok {
+		id, matched := matchEntries(entries, candidates)
 		r.mu.RUnlock()
-		return id, ok, nil
+		return id, matched, nil
 	}
 	r.mu.RUnlock()
 
 	r.mu.Lock()
-	if !r.loaded {
-		if err := r.load(ctx); err != nil {
-			r.mu.Unlock()
-			return 0, false, err
-		}
+	// Re-check under write lock: a parallel call may have loaded it already.
+	if entries, ok := r.byAcct[accountID]; ok {
+		id, matched := matchEntries(entries, candidates)
+		r.mu.Unlock()
+		return id, matched, nil
 	}
-	id, ok := r.matchLocked(accountID, candidates)
+	if err := r.loadAccountLocked(ctx, accountID); err != nil {
+		r.mu.Unlock()
+		return 0, false, err
+	}
+	entries := r.byAcct[accountID]
 	r.mu.Unlock()
-	return id, ok, nil
+
+	id, matched := matchEntries(entries, candidates)
+	return id, matched, nil
 }
 
-func (r *projectRouter) matchLocked(accountID int32, candidates []string) (int32, bool) {
-	entries, ok := r.byAcct[accountID]
-	if !ok {
-		return 0, false
-	}
+func matchEntries(entries []projectEntry, candidates []string) (int32, bool) {
 	for _, e := range entries {
 		for _, c := range candidates {
 			if strings.HasPrefix(c, e.path) {
@@ -84,39 +102,52 @@ func (r *projectRouter) matchLocked(accountID int32, candidates []string) (int32
 	return 0, false
 }
 
-// Invalidate drops the cached entries. The next Match call will reload from
-// the database. Global drop (not per-account) — cheaper than tracking which
-// account changed, and reload is a single query.
-func (r *projectRouter) Invalidate() {
+// InvalidateAccount drops one account's cached bucket. The next Match for
+// that account will reload from the DB. Cheap (one map delete) and bounded
+// in blast radius — other accounts' caches are untouched.
+//
+// Mutation paths (handle_project.go writes, gateway_helpers.go auto-create)
+// MUST call this with the account whose projects changed.
+func (r *projectRouter) InvalidateAccount(accountID int32) {
+	if accountID == 0 {
+		return
+	}
 	r.mu.Lock()
-	r.byAcct = nil
-	r.loaded = false
+	delete(r.byAcct, accountID)
 	r.mu.Unlock()
 }
 
-func (r *projectRouter) load(ctx context.Context) error {
-	rows, err := r.queries.ListProjectPaths(ctx)
-	if err != nil {
-		return fmt.Errorf("project router: load: %w", err)
-	}
+// Invalidate drops every account's bucket. Reserved for cases where a
+// targeted InvalidateAccount isn't possible (e.g., schema migrations). Day
+// to day, prefer InvalidateAccount(accountID) — global invalidation forces
+// every active account to reload on its next request.
+func (r *projectRouter) Invalidate() {
+	r.mu.Lock()
+	r.byAcct = make(map[int32][]projectEntry)
+	r.mu.Unlock()
+}
 
-	byAcct := make(map[int32][]projectEntry)
+// loadAccountLocked fetches a single account's project paths and stores
+// them in byAcct[accountID]. Caller must hold r.mu for writing. Always
+// stores a non-nil slice (possibly empty) so a subsequent Match knows the
+// account is loaded and doesn't re-hit the DB.
+func (r *projectRouter) loadAccountLocked(ctx context.Context, accountID int32) error {
+	rows, err := r.queries.ListProjectPathsByAccount(ctx, accountID)
+	if err != nil {
+		return fmt.Errorf("project router: load account %d: %w", accountID, err)
+	}
+	entries := make([]projectEntry, 0, len(rows))
 	for _, row := range rows {
 		if row.Path == "" {
 			continue
 		}
-		byAcct[row.AccountID] = append(byAcct[row.AccountID], projectEntry{
+		entries = append(entries, projectEntry{
 			path:      row.Path,
 			projectID: row.ProjectID,
 		})
 	}
-
-	for acct, entries := range byAcct {
-		sortProjectEntries(entries)
-		byAcct[acct] = entries
-	}
-	r.byAcct = byAcct
-	r.loaded = true
+	sortProjectEntries(entries)
+	r.byAcct[accountID] = entries
 	return nil
 }
 
