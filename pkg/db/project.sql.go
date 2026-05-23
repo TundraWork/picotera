@@ -28,31 +28,6 @@ func (q *Queries) DeleteProject(ctx context.Context, arg DeleteProjectParams) (i
 	return result.RowsAffected(), nil
 }
 
-const getProjectByAccountAndName = `-- name: GetProjectByAccountAndName :one
-SELECT id, name, paths, first_seen_at, last_seen_at, created_at, updated_at, account_id FROM project WHERE account_id = $1 AND name = $2 LIMIT 1
-`
-
-type GetProjectByAccountAndNameParams struct {
-	AccountID int32  `json:"accountId"`
-	Name      string `json:"name"`
-}
-
-func (q *Queries) GetProjectByAccountAndName(ctx context.Context, arg GetProjectByAccountAndNameParams) (Project, error) {
-	row := q.db.QueryRow(ctx, getProjectByAccountAndName, arg.AccountID, arg.Name)
-	var i Project
-	err := row.Scan(
-		&i.ID,
-		&i.Name,
-		&i.Paths,
-		&i.FirstSeenAt,
-		&i.LastSeenAt,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-		&i.AccountID,
-	)
-	return i, err
-}
-
 const getProjectForAccount = `-- name: GetProjectForAccount :one
 SELECT id, name, paths, first_seen_at, last_seen_at, created_at, updated_at, account_id FROM project WHERE id = $1 AND account_id = $2 LIMIT 1
 `
@@ -90,39 +65,6 @@ type InsertProjectParams struct {
 
 func (q *Queries) InsertProject(ctx context.Context, arg InsertProjectParams) (Project, error) {
 	row := q.db.QueryRow(ctx, insertProject, arg.AccountID, arg.Name, arg.Paths)
-	var i Project
-	err := row.Scan(
-		&i.ID,
-		&i.Name,
-		&i.Paths,
-		&i.FirstSeenAt,
-		&i.LastSeenAt,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-		&i.AccountID,
-	)
-	return i, err
-}
-
-const insertProjectIfNotExists = `-- name: InsertProjectIfNotExists :one
-INSERT INTO project (account_id, name, paths)
-VALUES ($1, $2, $3)
-ON CONFLICT (account_id, name) DO NOTHING
-RETURNING id, name, paths, first_seen_at, last_seen_at, created_at, updated_at, account_id
-`
-
-type InsertProjectIfNotExistsParams struct {
-	AccountID int32  `json:"accountId"`
-	Name      string `json:"name"`
-	Paths     []byte `json:"paths"`
-}
-
-// Used by the gateway auto-create path. ON CONFLICT DO NOTHING means a
-// concurrent insert by the same (account_id, name) leaves the prior row
-// in place and RETURNING is empty; callers must follow up with
-// GetProjectByAccountAndName to fetch the existing row.
-func (q *Queries) InsertProjectIfNotExists(ctx context.Context, arg InsertProjectIfNotExistsParams) (Project, error) {
-	row := q.db.QueryRow(ctx, insertProjectIfNotExists, arg.AccountID, arg.Name, arg.Paths)
 	var i Project
 	err := row.Scan(
 		&i.ID,

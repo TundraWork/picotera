@@ -50,7 +50,6 @@ type Querier interface {
 	GetModels(ctx context.Context) ([]Model, error)
 	GetOverviewTokenBreakdown(ctx context.Context, arg GetOverviewTokenBreakdownParams) (GetOverviewTokenBreakdownRow, error)
 	GetOverviewTotals(ctx context.Context, arg GetOverviewTotalsParams) (GetOverviewTotalsRow, error)
-	GetProjectByAccountAndName(ctx context.Context, arg GetProjectByAccountAndNameParams) (Project, error)
 	GetProjectForAccount(ctx context.Context, arg GetProjectForAccountParams) (Project, error)
 	GetProviderByID(ctx context.Context, id int32) (Provider, error)
 	GetProviderEndpoint(ctx context.Context, arg GetProviderEndpointParams) (ProviderEndpoint, error)
@@ -79,11 +78,6 @@ type Querier interface {
 	// as of P5.03 — the invite flow no longer pre-populates username/displayName.
 	InsertEnrollment(ctx context.Context, arg InsertEnrollmentParams) (Enrollment, error)
 	InsertProject(ctx context.Context, arg InsertProjectParams) (Project, error)
-	// Used by the gateway auto-create path. ON CONFLICT DO NOTHING means a
-	// concurrent insert by the same (account_id, name) leaves the prior row
-	// in place and RETURNING is empty; callers must follow up with
-	// GetProjectByAccountAndName to fetch the existing row.
-	InsertProjectIfNotExists(ctx context.Context, arg InsertProjectIfNotExistsParams) (Project, error)
 	InsertRequest(ctx context.Context, arg InsertRequestParams) (pgtype.Timestamp, error)
 	InsertScript(ctx context.Context, arg InsertScriptParams) (Script, error)
 	ListAccounts(ctx context.Context) ([]ListAccountsRow, error)

@@ -9,7 +9,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
@@ -613,8 +612,8 @@ func (s *Server) insertRequest(ctx context.Context, arg db.InsertRequestParams) 
 
 // extractProjectCandidates runs the project regexes over body and returns
 // the deduped candidate path strings. Pure — no DB, no account context. The
-// candidates are resolved (and possibly auto-create a project row) only
-// after authentication completes, by resolveProjectForAccount.
+// candidates are resolved later by resolveProjectForAccount once the caller
+// is authenticated.
 func (s *Server) extractProjectCandidates(ctx context.Context, body []byte) []string {
 	if s.projectExtractor == nil {
 		return nil
@@ -623,15 +622,13 @@ func (s *Server) extractProjectCandidates(ctx context.Context, body []byte) []st
 }
 
 // resolveProjectForAccount asks the per-account router for a project
-// matching any candidate path within accountID's project namespace. When no
-// match is found AND accountID is non-zero AND there is at least one
-// candidate, auto-creates a project for accountID using filepath.Base of the
-// first candidate (or "untitled" when that is empty) as the name. The new
-// row's paths array contains the first candidate so subsequent requests
-// resolve via the router cache.
+// matching any candidate path within accountID's project namespace.
+// Returns the matched id when found; otherwise returns an invalid pgtype.Int4
+// so the request row's project_id stays NULL. Projects are user-configured;
+// the gateway is a passive matcher and never writes to the project table.
 //
-// accountID == 0 means a system key (api_key.account_id IS NULL): we never
-// tag system requests with a project, and never auto-create.
+// accountID == 0 means no authenticated caller (e.g. pre-auth failure): we
+// never tag such requests.
 //
 // Errors are logged and treated as "no match" — the gateway continues
 // without a project tag rather than failing the request.
@@ -644,76 +641,10 @@ func (s *Server) resolveProjectForAccount(ctx context.Context, accountID int32, 
 		logx.WithContext(ctx).WithError(err).Warn("project extractor failed")
 		return pgtype.Int4{Valid: false}
 	}
-	if ok {
-		return pgtype.Int4{Int32: id, Valid: true}
-	}
-	// No match — auto-create for the caller's account. First candidate is
-	// the "primary" workspace per regex order in projectExtractRegexps;
-	// using filepath.Base keeps the auto-name human-friendly. The new row
-	// includes the candidate path so future requests resolve via the
-	// router (after Invalidate on this path). ON CONFLICT DO NOTHING
-	// handles concurrent inserts safely; if the row already exists from a
-	// racer, we re-fetch it by (account_id, name).
-	primary := candidates[0]
-	name := autoProjectName(primary)
-	pathsJSON, jerr := json.Marshal([]string{primary})
-	if jerr != nil {
-		logx.WithContext(ctx).WithError(jerr).Warn("project auto-create: encode paths failed")
+	if !ok {
 		return pgtype.Int4{Valid: false}
 	}
-	row, ierr := s.queries.InsertProjectIfNotExists(ctx, db.InsertProjectIfNotExistsParams{
-		AccountID: accountID,
-		Name:      name,
-		Paths:     pathsJSON,
-	})
-	if ierr != nil {
-		if errors.Is(ierr, pgx.ErrNoRows) {
-			// Concurrent insert by another request landed first; pull
-			// the existing row so we still tag this request correctly.
-			existing, gerr := s.queries.GetProjectByAccountAndName(ctx, db.GetProjectByAccountAndNameParams{
-				AccountID: accountID,
-				Name:      name,
-			})
-			if gerr != nil {
-				logx.WithContext(ctx).WithError(gerr).WithFields(map[string]any{
-					"account_id": accountID,
-					"name":       name,
-				}).Warn("project auto-create: fetch-after-conflict failed")
-				return pgtype.Int4{Valid: false}
-			}
-			row = existing
-		} else {
-			logx.WithContext(ctx).WithError(ierr).WithFields(map[string]any{
-				"account_id": accountID,
-				"name":       name,
-			}).Warn("project auto-create: insert failed")
-			return pgtype.Int4{Valid: false}
-		}
-	} else {
-		// Genuinely new row — surface for operator visibility.
-		logx.WithContext(ctx).WithFields(map[string]any{
-			"event":      "auth.project_auto_created",
-			"account_id": accountID,
-			"project_id": row.ID,
-			"name":       name,
-			"path":       primary,
-		}).Warn("auth.project_auto_created")
-	}
-	s.projectRouter.InvalidateAccount(accountID)
-	return pgtype.Int4{Int32: row.ID, Valid: true}
-}
-
-// autoProjectName derives a project name from a workspace path candidate.
-// Uses the last path segment; falls back to "untitled" when the input is
-// empty, "/" only, or otherwise has no meaningful basename. The name is the
-// human-friendly label shown in the dashboard; the path itself is stored on
-// project.paths and drives router matching.
-func autoProjectName(p string) string {
-	base := filepath.Base(p)
-	if base == "" || base == "/" || base == "." {
-		return "untitled"
-	}
-	return base
+	return pgtype.Int4{Int32: id, Valid: true}
 }
 
 // accountIDForAPIKey returns the apiKey's owning account_id, or 0 when apiKey
