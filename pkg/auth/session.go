@@ -149,16 +149,33 @@ func (s *SessionStore) Load(ctx context.Context, accountID int32, token, ip, ua 
 		_ = s.kv.Del(ctx, key)
 		return nil, false, ErrNoSession()
 	}
+	// Backfill schema fields that landed after the session was originally
+	// issued. Pre-existing sessions from before SessionID/UserAgent were
+	// added otherwise show empty in /me/sessions and can't be revoked.
+	backfilled := false
+	if data.SessionID == "" {
+		if sid, err := newSessionID(); err == nil {
+			data.SessionID = sid
+			backfilled = true
+		}
+	}
+	if data.UserAgent == "" && ua != "" {
+		data.UserAgent = ua
+		backfilled = true
+	}
 	refreshed := false
 	if data.ExpiresAt.Sub(now) < s.refresh {
 		data.ExpiresAt = now.Add(s.ttl)
 		data.LastSeenIP = ip
-		if ua != "" {
-			data.UserAgent = ua
-		}
 		payload, _ := json.Marshal(&data)
 		_ = s.kv.SetEx(ctx, key, string(payload), s.ttl)
 		refreshed = true
+	} else if backfilled {
+		// Save the schema fill without resetting the TTL.
+		payload, _ := json.Marshal(&data)
+		if remaining := time.Until(data.ExpiresAt); remaining > 0 {
+			_ = s.kv.SetEx(ctx, key, string(payload), remaining)
+		}
 	}
 	return &data, refreshed, nil
 }
@@ -212,6 +229,19 @@ func (s *SessionStore) ListByAccount(ctx context.Context, accountID int32) ([]Se
 				continue
 			}
 			token := strings.TrimPrefix(entry.Key, prefix)
+			// Backfill SessionID for pre-schema sessions so the revoke
+			// endpoint can target them. UA stays empty until the session
+			// is used again (Load backfills it from the request UA).
+			if data.SessionID == "" {
+				if sid, err := newSessionID(); err == nil {
+					data.SessionID = sid
+					if remaining := time.Until(data.ExpiresAt); remaining > 0 {
+						if payload, err := json.Marshal(&data); err == nil {
+							_ = s.kv.SetEx(ctx, entry.Key, string(payload), remaining)
+						}
+					}
+				}
+			}
 			out = append(out, SessionRecord{Token: token, Data: data})
 		}
 		cursor = result.NextCursor
