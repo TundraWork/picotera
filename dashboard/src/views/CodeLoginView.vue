@@ -152,26 +152,19 @@ onBeforeUnmount(() => {
         </div>
         <Button variant="ghost" size="sm" @click="copyCode">
           <Icon :name="copied ? 'check' : 'copy'" :size="13" />
-          <span>{{ copied ? '已复制' : '复制配对码' }}</span>
+          <span>{{ copied ? '已复制' : '复制' }}</span>
         </Button>
       </div>
       <p class="text-sm text-ink-muted">
-        请在已登录的设备上完成以下步骤：
+        在已登录设备的「个人设置」点击「添加新设备」，输入此配对码并批准。
       </p>
-      <ol class="flex flex-col gap-1 text-sm text-ink-muted list-decimal list-inside pl-1">
-        <li>打开「个人设置」页面（顶部菜单 → 头像 → 我的）。</li>
-        <li>点击「添加新设备」按钮。</li>
-        <li>输入上方配对码，确认设备信息后点击「批准」。</li>
-      </ol>
-      <p class="text-xs text-ink-faint">
-        等待对方批准…配对码 5 分钟内有效。批准后本页会自动继续。
-      </p>
+      <p class="text-xs text-ink-faint">配对码 5 分钟内有效。</p>
     </template>
 
     <template v-else-if="phase === 'completing'">
       <div class="flex flex-col items-center gap-3 py-4">
         <div class="w-10 h-10 rounded-full border-2 border-line border-t-accent animate-spin"></div>
-        <p class="text-sm text-ink-muted text-center">配对已批准，正在登录…</p>
+        <p class="text-sm text-ink-muted">正在登录…</p>
       </div>
     </template>
 
@@ -179,10 +172,7 @@ onBeforeUnmount(() => {
       <div class="flex flex-col items-center gap-3 py-4">
         <div class="w-10 h-10 rounded-full border-2 border-line border-t-accent animate-spin"></div>
         <p class="text-sm text-ink-muted text-center">
-          已登录。请按浏览器或密码管理器提示，为此设备添加 Passkey。
-        </p>
-        <p class="text-xs text-ink-faint text-center">
-          下次在本设备登录时即可直接使用 Passkey，无需再次配对。
+          请按提示为此设备添加 Passkey，下次可直接登录。
         </p>
       </div>
     </template>

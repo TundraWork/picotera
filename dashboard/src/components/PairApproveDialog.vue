@@ -63,8 +63,7 @@ function fmtTime(iso?: string | null): string {
     <template v-if="phase === 'enter'">
       <div class="flex flex-col gap-4">
         <p class="text-sm text-ink-muted">
-          在希望加入的新设备上，打开 PicoTera 登录页，点击「无 Passkey 登录」并选择「有」。
-          页面会显示一个 8 位配对码，将它输入到下方。
+          在新设备的登录页选择「无 Passkey 登录」→「有」，输入显示的配对码。
         </p>
         <Field label="配对码">
           <Input
@@ -83,11 +82,10 @@ function fmtTime(iso?: string | null): string {
     <template v-else-if="phase === 'confirm' && lookup">
       <div class="flex flex-col gap-4">
         <div class="rounded-md bg-err-faint text-err-ink text-xs px-3 py-2">
-          批准后，下方设备将作为您的账户登录并可添加 Passkey。
-          如果不是您本人在新设备上发起的，请立即返回。
+          批准后该设备将作为您登录。如非本人发起请取消。
         </div>
         <div class="flex flex-col items-center gap-1 my-1">
-          <span class="text-xs text-ink-faint">请确认与新设备屏幕显示的一致：</span>
+          <span class="text-xs text-ink-faint">与新设备屏幕一致？</span>
           <div class="font-mono text-2xl tracking-widest text-ink tabular-nums">
             {{ lookup.displayCode }}
           </div>
@@ -124,9 +122,7 @@ function fmtTime(iso?: string | null): string {
     <template v-else-if="phase === 'done'">
       <div class="flex flex-col items-center gap-3 py-6">
         <Icon name="check" :size="32" class="text-accent" />
-        <p class="text-sm text-ink-muted text-center">
-          已批准。新设备将自动完成 Passkey 注册并登录。
-        </p>
+        <p class="text-sm text-ink-muted">已批准，新设备将自动登录。</p>
       </div>
     </template>
 

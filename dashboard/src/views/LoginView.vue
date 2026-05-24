@@ -90,13 +90,9 @@ function signIn() {
       </Button>
       <p v-if="errorMessage" class="text-sm text-err mt-3">{{ errorMessage }}</p>
       <div class="mt-6 pt-4 border-t border-line">
-        <RouterLink
-          to="/login/recover"
-          class="text-sm text-accent hover:underline"
-        >无 Passkey 登录</RouterLink>
-        <p class="text-xs text-ink-faint mt-1">
-          在新设备上首次登录、或者所有 Passkey 都已失效时使用。
-        </p>
+        <RouterLink to="/login/recover" class="text-sm text-accent hover:underline">
+          无 Passkey 登录
+        </RouterLink>
       </div>
     </template>
   </div>
