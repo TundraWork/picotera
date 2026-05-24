@@ -156,7 +156,7 @@ onBeforeUnmount(() => {
         </Button>
       </div>
       <p class="text-sm text-ink-muted">
-        在已登录设备的「个人设置」点击「添加新设备」，将这串 8 位配对码输入并批准。
+        在已登录设备的导航栏底部点击用户图标 → 「我的账号」，点击「添加新设备」，输入 8 位配对码并批准。
       </p>
       <p class="text-xs text-ink-faint">配对码 5 分钟内有效。</p>
     </template>

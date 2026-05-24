@@ -74,7 +74,7 @@ function fmtTime(iso?: string | null): string {
     <template v-if="phase === 'enter'">
       <div class="flex flex-col gap-4">
         <p class="text-sm text-ink-muted">
-          在新设备打开登录页，点击「无 Passkey 登录」→「有」，在下方输入显示的 8 位配对码。
+          在新设备打开登录页，点击「无 Passkey 登录」 → 「有」，在下方输入显示的 8 位配对码。
         </p>
         <Field label="配对码">
           <PairingCodeInput v-model="code" @enter="onLookup" />
