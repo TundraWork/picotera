@@ -1,28 +1,32 @@
 // Sudo: re-prove possession of the account's passkey to elevate the
-// session for one sensitive action. Returns a runWithSudo() helper that
-// wraps an arbitrary async call — if it throws sudo_required, run the
-// WebAuthn assertion and retry the action once.
+// session for one sensitive action. Wraps an arbitrary async action — if
+// the server demands sudo, runs the WebAuthn assertion ceremony through
+// the passkey SDK (which shows the centered popup with retry/cancel) and
+// retries the original action exactly once.
+//
+// The popup UI lives in the global PasskeyPopupHost; this composable
+// only orchestrates the begin/complete pair for the sudo grant.
 
 import { sudoBegin, sudoComplete, ApiRequestError } from '@/api/client'
-import { webauthnGet, WebAuthnUserCancelled } from '@/api/webauthn'
+import * as passkey from '@/passkey'
 
 /**
- * Run a fresh WebAuthn assertion to lift the sudo flag on the current
- * session. Re-throws WebAuthnUserCancelled on cancel; throws
- * ApiRequestError on server-side failures.
+ * Run an assertion ceremony to lift the sudo flag on the current session.
+ * Re-throws passkey.PasskeyCancelled on cancel; throws ApiRequestError on
+ * server-side failures.
  */
 async function elevateSudo(): Promise<void> {
-  const options = await sudoBegin()
-  const assertion = await webauthnGet(options as Parameters<typeof webauthnGet>[0])
-  await sudoComplete(assertion)
+  await passkey.assert({
+    begin: sudoBegin,
+    complete: (assertion) => sudoComplete(assertion),
+    title: '安全验证',
+    subtitle: '此操作需要重新验证 Passkey',
+  })
 }
 
 /**
  * Run `action`. If it throws sudo_required, prompt the user with a
- * WebAuthn assertion and retry once. Any other error propagates.
- *
- * Usage:
- *   await runWithSudo(() => pairApprove(code))
+ * WebAuthn assertion (popup) and retry once. Any other error propagates.
  */
 export async function runWithSudo<T>(action: () => Promise<T>): Promise<T> {
   try {
@@ -36,4 +40,5 @@ export async function runWithSudo<T>(action: () => Promise<T>): Promise<T> {
   }
 }
 
-export { WebAuthnUserCancelled }
+// Re-export from passkey so callers don't need a second import.
+export const WebAuthnUserCancelled = passkey.PasskeyCancelled

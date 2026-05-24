@@ -10,18 +10,21 @@ import {
   pairComplete,
   addCredentialBegin,
   addCredentialComplete,
+  renameMyCredential,
   ApiRequestError,
   type PairBeginResponse,
 } from '@/api/client'
 import { queryKeys } from '@/api/queryKeys'
-import { webauthnCreate, WebAuthnUserCancelled } from '@/api/webauthn'
 import { fallbackFor } from '@/router/fallback'
+import * as passkey from '@/passkey'
 
 const router = useRouter()
 const qc = useQueryClient()
 
-// Pairing flow phases — entire lifecycle in one view.
-type Phase = 'starting' | 'waiting' | 'completing' | 'registering' | 'error' | 'expired'
+// Pairing flow phases — entire lifecycle in one view. The credential
+// registration step happens inside the global passkey popup, so this view
+// only needs to express its own pre/post-popup state.
+type Phase = 'starting' | 'waiting' | 'completing' | 'error' | 'expired'
 
 const phase = ref<Phase>('starting')
 const beginData = ref<PairBeginResponse | null>(null)
@@ -87,16 +90,18 @@ async function completePairing() {
 }
 
 async function registerLocalPasskey() {
-  phase.value = 'registering'
   try {
-    const options = await addCredentialBegin()
-    const attestation = await webauthnCreate(
-      options as Parameters<typeof webauthnCreate>[0],
-    )
-    await addCredentialComplete(attestation)
+    await passkey.enroll({
+      begin: addCredentialBegin,
+      complete: (attestation) => addCredentialComplete(attestation),
+      rename: (id, nickname) => renameMyCredential(id, nickname),
+      extractCredentialId: (r) => r.id,
+      title: '为此设备添加 Passkey',
+      subtitle: '下次可直接登录',
+    })
     finishRedirect()
   } catch (e: unknown) {
-    if (e instanceof WebAuthnUserCancelled) {
+    if (e instanceof passkey.PasskeyCancelled) {
       // User declined to register a local passkey — they're still signed
       // in via the pair session; route them on anyway, they can register
       // later from /me.
@@ -164,15 +169,6 @@ onBeforeUnmount(() => {
       <div class="flex flex-col items-center gap-3 py-4">
         <div class="w-10 h-10 rounded-full border-2 border-line border-t-accent animate-spin"></div>
         <p class="text-sm text-ink-muted">正在登录…</p>
-      </div>
-    </template>
-
-    <template v-else-if="phase === 'registering'">
-      <div class="flex flex-col items-center gap-3 py-4">
-        <div class="w-10 h-10 rounded-full border-2 border-line border-t-accent animate-spin"></div>
-        <p class="text-sm text-ink-muted text-center">
-          请在浏览器或密码管理器弹窗中为此设备注册 Passkey，用于下次登录。
-        </p>
       </div>
     </template>
 

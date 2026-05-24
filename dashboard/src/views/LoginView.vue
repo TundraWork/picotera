@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/vue-query'
+import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import {
   fetchAuthStatus,
   beginLogin,
@@ -10,9 +10,9 @@ import {
 } from '@/api/client'
 import { queryKeys } from '@/api/queryKeys'
 import { OPERATIONAL_STALE_TIME } from '@/api/queryClient'
-import { webauthnGet, WebAuthnUserCancelled } from '@/api/webauthn'
 import { Button } from '@/ui'
 import { fallbackFor } from '@/router/fallback'
+import * as passkey from '@/passkey'
 
 const route = useRoute()
 const router = useRouter()
@@ -34,36 +34,30 @@ function safeNext(): string {
   return n
 }
 
-const loginMutation = useMutation({
-  mutationFn: async () => {
-    const options = await beginLogin()
-    const assertion = await webauthnGet(options as Parameters<typeof webauthnGet>[0])
-    return completeLogin(assertion)
-  },
-  onSuccess(session) {
+const signingIn = ref(false)
+
+async function signIn() {
+  errorMessage.value = null
+  signingIn.value = true
+  try {
+    const session = await passkey.assert({
+      begin: beginLogin,
+      complete: completeLogin,
+      title: '登录',
+    })
     qc.setQueryData(queryKeys.session.current, session)
     const next = safeNext()
-    // safeNext defaults to /overview which is admin-only; substitute the role-aware
-    // fallback so non-admins land on a page they actually have permission for.
+    // safeNext defaults to /overview which is admin-only; substitute the
+    // role-aware fallback so non-admins land on a page they actually have
+    // permission for.
     const target = next === '/overview' && session.role !== 'admin' ? fallbackFor(session) : next
     router.replace(target)
-  },
-  onError(err: unknown) {
-    if (err instanceof WebAuthnUserCancelled) {
-      errorMessage.value = '取消或超时'
-      return
-    }
-    if (err instanceof ApiRequestError) {
-      errorMessage.value = err.message
-      return
-    }
-    errorMessage.value = '登录失败'
-  },
-})
-
-function signIn() {
-  errorMessage.value = null
-  loginMutation.mutate()
+  } catch (err: unknown) {
+    if (err instanceof passkey.PasskeyCancelled) return
+    errorMessage.value = err instanceof ApiRequestError ? err.message : '登录失败'
+  } finally {
+    signingIn.value = false
+  }
 }
 </script>
 
@@ -85,9 +79,7 @@ function signIn() {
 
     <template v-else>
       <p class="text-sm text-ink-muted mb-4">使用 Passkey 登录管理后台。</p>
-      <Button :disabled="loginMutation.isPending.value" @click="signIn">
-        使用 Passkey 登录
-      </Button>
+      <Button :disabled="signingIn" @click="signIn">使用 Passkey 登录</Button>
       <p v-if="errorMessage" class="text-sm text-err mt-3">{{ errorMessage }}</p>
       <div class="mt-6 pt-4 border-t border-line">
         <RouterLink to="/login/recover" class="text-sm text-accent hover:underline">

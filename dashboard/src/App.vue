@@ -4,6 +4,7 @@ import { useRoute, RouterView } from 'vue-router'
 import AppLayout from '@/layouts/AppLayout.vue'
 import MinimalLayout from '@/layouts/MinimalLayout.vue'
 import ConfirmDialog from '@/ui/ConfirmDialog.vue'
+import PasskeyPopupHost from '@/components/PasskeyPopupHost.vue'
 import { useExchangeRates } from '@/composables/useExchangeRates'
 import { provideCurrencyContext } from '@/composables/useCurrencyContext'
 import { usePreferencesStore } from '@/stores/preferences'
@@ -31,4 +32,5 @@ const showLoading = computed(() => route.meta.layout === 'app' && session.isPend
     <RouterView />
   </component>
   <ConfirmDialog />
+  <PasskeyPopupHost />
 </template>

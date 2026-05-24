@@ -9,11 +9,13 @@ import {
   fetchMyCredentials,
   deleteMyCredential,
   renameMyCredential,
+  addCredentialBegin,
+  addCredentialComplete,
   invalidateOwnCredentials,
 } from '@/api/client'
+import * as passkey from '@/passkey'
 import { queryKeys } from '@/api/queryKeys'
 import { Button, IconButton, Input, Badge, DataCard, DataTable, Th, Td, Tr, StateText, Icon } from '@/ui'
-import AddPasskeyDialog from '@/components/AddPasskeyDialog.vue'
 import PairApproveDialog from '@/components/PairApproveDialog.vue'
 import SessionsCard from '@/components/SessionsCard.vue'
 import type { components } from '@/openapi-types'
@@ -32,8 +34,19 @@ const credentialsQuery = useQuery({
   queryFn: fetchMyCredentials,
 })
 
-function openAddDialog() {
-  sidePanel.open(AddPasskeyDialog, {}, { key: 'add-passkey', width: '480px' })
+async function openAddDialog() {
+  try {
+    await passkey.enroll({
+      begin: addCredentialBegin,
+      complete: (attestation) => addCredentialComplete(attestation),
+      rename: (id, nickname) => renameMyCredential(id, nickname),
+      extractCredentialId: (r) => r.id,
+      title: '添加 Passkey',
+    })
+    invalidateOwnCredentials(qc)
+  } catch {
+    // user cancelled; popup self-dismissed
+  }
 }
 
 function openAddDeviceDialog() {
