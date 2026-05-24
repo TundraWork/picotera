@@ -156,9 +156,9 @@ onBeforeUnmount(() => {
         </Button>
       </div>
       <p class="text-sm text-ink-muted">
-        在已登录设备的「个人设置」点击「添加新设备」，输入此配对码并批准。
+        在已登录设备的「个人设置」点击「添加新设备」，将这串 8 位配对码输入并批准。
       </p>
-      <p class="text-xs text-ink-faint">配对码 5 分钟内有效。</p>
+      <p class="text-xs text-ink-faint">配对码 5 分钟内有效，批准后本页自动继续登录。</p>
     </template>
 
     <template v-else-if="phase === 'completing'">
@@ -172,7 +172,7 @@ onBeforeUnmount(() => {
       <div class="flex flex-col items-center gap-3 py-4">
         <div class="w-10 h-10 rounded-full border-2 border-line border-t-accent animate-spin"></div>
         <p class="text-sm text-ink-muted text-center">
-          请按提示为此设备添加 Passkey，下次可直接登录。
+          请在浏览器或密码管理器弹窗中为此设备注册 Passkey，下次可直接登录。
         </p>
       </div>
     </template>

@@ -63,7 +63,7 @@ function fmtTime(iso?: string | null): string {
     <template v-if="phase === 'enter'">
       <div class="flex flex-col gap-4">
         <p class="text-sm text-ink-muted">
-          在新设备的登录页选择「无 Passkey 登录」→「有」，输入显示的配对码。
+          在新设备的登录页点击「无 Passkey 登录」→「有」，将显示的 8 位配对码输入下方。
         </p>
         <Field label="配对码">
           <Input
@@ -82,10 +82,10 @@ function fmtTime(iso?: string | null): string {
     <template v-else-if="phase === 'confirm' && lookup">
       <div class="flex flex-col gap-4">
         <div class="rounded-md bg-err-faint text-err-ink text-xs px-3 py-2">
-          批准后该设备将作为您登录。如非本人发起请取消。
+          批准后该设备将以您的账户登录，并可注册新的 Passkey。如非本人发起请取消。
         </div>
         <div class="flex flex-col items-center gap-1 my-1">
-          <span class="text-xs text-ink-faint">与新设备屏幕一致？</span>
+          <span class="text-xs text-ink-faint">请核对与新设备屏幕显示的 8 位配对码一致：</span>
           <div class="font-mono text-2xl tracking-widest text-ink tabular-nums">
             {{ lookup.displayCode }}
           </div>
