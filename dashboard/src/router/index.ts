@@ -115,6 +115,12 @@ const router = createRouter({
       meta: { auth: { kind: 'public' }, layout: 'minimal' },
     },
     {
+      path: '/login/recover/admin',
+      name: 'adminRecovery',
+      component: () => import('@/views/AdminRecoveryView.vue'),
+      meta: { auth: { kind: 'public' }, layout: 'minimal' },
+    },
+    {
       path: '/enroll/:token',
       name: 'enroll',
       component: () => import('@/views/EnrollView.vue'),

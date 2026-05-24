@@ -7,6 +7,8 @@ import {
   pairBegin,
   pairStatus,
   pairComplete,
+  addCredentialBegin,
+  addCredentialComplete,
   ApiRequestError,
   type PairBeginResponse,
 } from '@/api/client'
@@ -17,7 +19,8 @@ import { fallbackFor } from '@/router/fallback'
 const router = useRouter()
 const qc = useQueryClient()
 
-type Phase = 'starting' | 'waiting' | 'approved' | 'registering' | 'done' | 'expired' | 'error'
+// Pairing flow phases — entire lifecycle in one view.
+type Phase = 'starting' | 'waiting' | 'completing' | 'registering' | 'error' | 'expired'
 
 const phase = ref<Phase>('starting')
 const beginData = ref<PairBeginResponse | null>(null)
@@ -25,17 +28,18 @@ const error = ref('')
 const copied = ref(false)
 let pollTimer: ReturnType<typeof setTimeout> | null = null
 let copyTimer: ReturnType<typeof setTimeout> | null = null
+let signedInSession: Awaited<ReturnType<typeof pairComplete>>['session'] | null = null
 
 async function start() {
   phase.value = 'starting'
   error.value = ''
+  signedInSession = null
   try {
-    const data = await pairBegin()
-    beginData.value = data
+    beginData.value = await pairBegin()
     phase.value = 'waiting'
     schedulePoll()
   } catch (e: unknown) {
-    error.value = e instanceof Error ? e.message : '获取配对码失败'
+    error.value = e instanceof ApiRequestError ? e.message : '获取配对码失败'
     phase.value = 'error'
   }
 }
@@ -46,51 +50,69 @@ function schedulePoll() {
 }
 
 async function poll() {
-  if (!beginData.value) return
-  if (phase.value !== 'waiting') return
+  if (!beginData.value || phase.value !== 'waiting') return
   try {
     const s = await pairStatus(beginData.value.pairingId)
     if (s.status === 'approved') {
-      phase.value = 'approved'
-      await runRegistration()
+      await completePairing()
       return
     }
-    if (s.status === 'expired' || s.status === 'consumed') {
+    if (s.status === 'expired') {
       phase.value = 'expired'
       return
     }
     schedulePoll()
-  } catch (e: unknown) {
-    // Transient network error — keep polling. Surface only if it persists
-    // beyond the TTL window (caller will hit 'expired' eventually).
-    if (e instanceof ApiRequestError) {
-      error.value = e.message
-    }
+  } catch {
+    // Transient network error — keep polling; TTL handles the abandoned case.
     schedulePoll()
   }
 }
 
-async function runRegistration() {
+async function completePairing() {
   if (!beginData.value) return
-  phase.value = 'registering'
+  phase.value = 'completing'
   try {
-    const attestation = await webauthnCreate(
-      beginData.value.publicKey as Parameters<typeof webauthnCreate>[0],
-    )
-    const result = await pairComplete(beginData.value.pairingId, attestation)
+    const result = await pairComplete(beginData.value.pairingId)
+    signedInSession = result.session
     qc.setQueryData(queryKeys.session.current, result.session)
-    phase.value = 'done'
-    router.replace(fallbackFor(result.session))
+    // We are now signed in via the approver's authority. Immediately offer
+    // to register a local passkey on this device so future logins skip the
+    // pairing dance.
+    await registerLocalPasskey()
   } catch (e: unknown) {
-    if (e instanceof WebAuthnUserCancelled) {
-      error.value = '已取消注册。请重新尝试。'
-    } else if (e instanceof ApiRequestError) {
-      error.value = e.message
-    } else {
-      error.value = '注册失败'
-    }
+    error.value = e instanceof ApiRequestError ? e.message : '登录失败'
     phase.value = 'error'
   }
+}
+
+async function registerLocalPasskey() {
+  phase.value = 'registering'
+  try {
+    const options = await addCredentialBegin()
+    const attestation = await webauthnCreate(
+      options as Parameters<typeof webauthnCreate>[0],
+    )
+    await addCredentialComplete(attestation)
+    finishRedirect()
+  } catch (e: unknown) {
+    if (e instanceof WebAuthnUserCancelled) {
+      // User declined to register a local passkey — they're still signed
+      // in via the pair session; route them on anyway, they can register
+      // later from /me.
+      finishRedirect()
+      return
+    }
+    error.value = e instanceof ApiRequestError ? e.message : '注册 Passkey 失败'
+    phase.value = 'error'
+  }
+}
+
+function finishRedirect() {
+  if (!signedInSession) {
+    router.replace('/login')
+    return
+  }
+  router.replace(fallbackFor(signedInSession))
 }
 
 async function copyCode() {
@@ -103,7 +125,7 @@ async function copyCode() {
       copied.value = false
     }, 1500)
   } catch {
-    // clipboard unavailable — ignore
+    // clipboard unavailable
   }
 }
 
@@ -124,10 +146,7 @@ onBeforeUnmount(() => {
     </template>
 
     <template v-else-if="phase === 'waiting' && beginData">
-      <p class="text-sm text-ink-muted">
-        在另一台已登录 PicoTera 的设备上打开「个人设置」，点击「添加新设备」并输入下方配对码：
-      </p>
-      <div class="flex flex-col items-center gap-3 my-2">
+      <div class="flex flex-col items-center gap-3 my-1">
         <div class="font-mono text-3xl tracking-widest text-ink tabular-nums select-all">
           {{ beginData.displayCode }}
         </div>
@@ -136,16 +155,34 @@ onBeforeUnmount(() => {
           <span>{{ copied ? '已复制' : '复制配对码' }}</span>
         </Button>
       </div>
-      <p class="text-xs text-ink-faint text-center">
-        等待对方批准…配对码 5 分钟内有效。
+      <p class="text-sm text-ink-muted">
+        请在已登录的设备上完成以下步骤：
+      </p>
+      <ol class="flex flex-col gap-1 text-sm text-ink-muted list-decimal list-inside pl-1">
+        <li>打开「个人设置」页面（顶部菜单 → 头像 → 我的）。</li>
+        <li>点击「添加新设备」按钮。</li>
+        <li>输入上方配对码，确认设备信息后点击「批准」。</li>
+      </ol>
+      <p class="text-xs text-ink-faint">
+        等待对方批准…配对码 5 分钟内有效。批准后本页会自动继续。
       </p>
     </template>
 
-    <template v-else-if="phase === 'approved' || phase === 'registering'">
+    <template v-else-if="phase === 'completing'">
+      <div class="flex flex-col items-center gap-3 py-4">
+        <div class="w-10 h-10 rounded-full border-2 border-line border-t-accent animate-spin"></div>
+        <p class="text-sm text-ink-muted text-center">配对已批准，正在登录…</p>
+      </div>
+    </template>
+
+    <template v-else-if="phase === 'registering'">
       <div class="flex flex-col items-center gap-3 py-4">
         <div class="w-10 h-10 rounded-full border-2 border-line border-t-accent animate-spin"></div>
         <p class="text-sm text-ink-muted text-center">
-          {{ phase === 'approved' ? '配对已批准，准备注册 Passkey…' : '请在浏览器或密码管理器弹窗中操作' }}
+          已登录。请按浏览器或密码管理器提示，为此设备添加 Passkey。
+        </p>
+        <p class="text-xs text-ink-faint text-center">
+          下次在本设备登录时即可直接使用 Passkey，无需再次配对。
         </p>
       </div>
     </template>

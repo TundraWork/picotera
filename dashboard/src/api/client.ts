@@ -497,7 +497,6 @@ export interface PairBeginResponse {
   code: string
   displayCode: string
   expiresAt: string
-  publicKey: unknown
 }
 
 export async function pairBegin(): Promise<PairBeginResponse> {
@@ -531,14 +530,12 @@ export async function pairStatus(pairingId: string): Promise<PairStatusResponse>
 
 export async function pairComplete(
   pairingId: string,
-  attestation: unknown,
-  nickname?: string,
-): Promise<{ session: SessionView; newCredentialId: number }> {
+): Promise<{ session: SessionView }> {
   const res = await fetch('/api/picotera/auth/devices/pair/complete', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     credentials: 'include',
-    body: JSON.stringify({ pairingId, attestation, nickname: nickname ?? '' }),
+    body: JSON.stringify({ pairingId }),
   })
   if (!res.ok) {
     const body = await res.json().catch(() => ({}))
@@ -549,6 +546,7 @@ export async function pairComplete(
 
 export interface PairLookupResponse {
   pairingId: string
+  displayCode: string
   initiatorUa: string
   initiatorIp: string
   createdAt: string

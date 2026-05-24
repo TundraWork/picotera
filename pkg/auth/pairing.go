@@ -33,8 +33,6 @@ import (
 	"time"
 
 	"picotera/pkg/kv"
-
-	"github.com/go-webauthn/webauthn/webauthn"
 )
 
 // PairingTTL bounds how long a code is valid. Short by design: this is a
@@ -60,11 +58,19 @@ const (
 // Pairing is the KV-persisted state for one pairing attempt. Two keys point
 // at it: pairing:id:<id> (canonical record) and pairing:code:<code> (lookup
 // from approve endpoint). Both share the same TTL.
+//
+// IMPORTANT: pairing does NOT carry a WebAuthn ceremony. It only proves "the
+// holder of an authenticated session on Device A authorized issuing a
+// session to whichever device generated this code". The new device, once
+// signed in, runs the existing /me/credentials/register flow with the
+// CORRECT user handle to register a local passkey. Doing WebAuthn at pair
+// time would require a user handle before the account is known, and any
+// substituted handle gets locked into the authenticator's local storage —
+// breaking future discoverable login on that device.
 type Pairing struct {
 	ID           string               `json:"id"`
 	Code         string               `json:"code"`
 	Status       PairingStatus        `json:"status"`
-	SessionData  webauthn.SessionData `json:"session_data"`
 	ApprovedFor  int32                `json:"approved_for,omitempty"` // 0 until approved
 	InitiatorUA  string               `json:"initiator_ua,omitempty"`
 	InitiatorIP  string               `json:"initiator_ip,omitempty"`
@@ -85,10 +91,9 @@ func NewPairingStore(store kv.Store) *PairingStore {
 func pairingIDKey(id string) string   { return "pairing:id:" + id }
 func pairingCodeKey(code string) string { return "pairing:code:" + code }
 
-// NewPairing creates a pending pairing and persists it. Returns the
-// just-created object; the caller (HTTP handler) is responsible for
-// returning code + pairingID + challenge to the PC.
-func (s *PairingStore) New(ctx context.Context, sessionData webauthn.SessionData, ua, ip string) (*Pairing, error) {
+// New creates a pending pairing and persists it. Returns the just-created
+// object; the caller (HTTP handler) returns code + pairingID to the PC.
+func (s *PairingStore) New(ctx context.Context, ua, ip string) (*Pairing, error) {
 	id, err := randomID()
 	if err != nil {
 		return nil, err
@@ -102,7 +107,6 @@ func (s *PairingStore) New(ctx context.Context, sessionData webauthn.SessionData
 		ID:          id,
 		Code:        code,
 		Status:      PairingPending,
-		SessionData: sessionData,
 		InitiatorUA: ua,
 		InitiatorIP: ip,
 		CreatedAt:   now,

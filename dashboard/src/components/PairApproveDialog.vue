@@ -82,9 +82,16 @@ function fmtTime(iso?: string | null): string {
 
     <template v-else-if="phase === 'confirm' && lookup">
       <div class="flex flex-col gap-4">
-        <p class="text-sm text-ink-muted">
-          请确认下方信息确实是您正在使用的新设备，再点击「批准」。
-        </p>
+        <div class="rounded-md bg-err-faint text-err-ink text-xs px-3 py-2">
+          批准后，下方设备将作为您的账户登录并可添加 Passkey。
+          如果不是您本人在新设备上发起的，请立即返回。
+        </div>
+        <div class="flex flex-col items-center gap-1 my-1">
+          <span class="text-xs text-ink-faint">请确认与新设备屏幕显示的一致：</span>
+          <div class="font-mono text-2xl tracking-widest text-ink tabular-nums">
+            {{ lookup.displayCode }}
+          </div>
+        </div>
         <div class="rounded-md border border-line bg-surface-100 px-4 py-3 flex flex-col gap-2">
           <div class="flex items-baseline gap-3">
             <span class="text-xs text-ink-faint w-16 shrink-0">设备</span>
@@ -103,9 +110,6 @@ function fmtTime(iso?: string | null): string {
             <span class="text-xs text-ink">{{ fmtTime(lookup.expiresAt) }}</span>
           </div>
         </div>
-        <p class="text-xs text-ink-faint">
-          如果以上设备不是您本人发起的，请点击「返回」并忽略此次配对。
-        </p>
         <p v-if="error" class="text-sm text-err">{{ error }}</p>
       </div>
     </template>
