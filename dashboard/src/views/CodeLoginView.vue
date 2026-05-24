@@ -90,6 +90,10 @@ async function completePairing() {
 }
 
 async function registerLocalPasskey() {
+  // Pair/complete already signed the user in. Whether they actually
+  // registered a local passkey is optional — succeed, cancel, or
+  // retry-then-cancel all route to the dashboard either way. Inline
+  // failures already surface inside the SDK popup.
   try {
     await passkey.enroll({
       begin: addCredentialBegin,
@@ -99,18 +103,10 @@ async function registerLocalPasskey() {
       title: '为此设备添加 Passkey',
       subtitle: '下次可直接登录',
     })
-    finishRedirect()
-  } catch (e: unknown) {
-    if (e instanceof passkey.PasskeyCancelled) {
-      // User declined to register a local passkey — they're still signed
-      // in via the pair session; route them on anyway, they can register
-      // later from /me.
-      finishRedirect()
-      return
-    }
-    error.value = e instanceof ApiRequestError ? e.message : '注册 Passkey 失败'
-    phase.value = 'error'
+  } catch {
+    // PasskeyCancelled or any other rejection — we're still signed in.
   }
+  finishRedirect()
 }
 
 function finishRedirect() {
