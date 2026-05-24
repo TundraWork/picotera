@@ -158,7 +158,7 @@ onBeforeUnmount(() => {
       <p class="text-sm text-ink-muted">
         在已登录设备的「个人设置」点击「添加新设备」，将这串 8 位配对码输入并批准。
       </p>
-      <p class="text-xs text-ink-faint">配对码 5 分钟内有效，批准后本页自动继续登录。</p>
+      <p class="text-xs text-ink-faint">配对码 5 分钟内有效。</p>
     </template>
 
     <template v-else-if="phase === 'completing'">
