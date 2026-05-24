@@ -3,6 +3,7 @@ import { onMounted, onBeforeUnmount, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useQueryClient } from '@tanstack/vue-query'
 import { Button, Icon } from '@/ui'
+import PairingCode from '@/components/PairingCode.vue'
 import {
   pairBegin,
   pairStatus,
@@ -147,9 +148,7 @@ onBeforeUnmount(() => {
 
     <template v-else-if="phase === 'waiting' && beginData">
       <div class="flex flex-col items-center gap-3 my-1">
-        <div class="font-mono text-3xl tracking-widest text-ink tabular-nums select-all">
-          {{ beginData.displayCode }}
-        </div>
+        <PairingCode :code="beginData.displayCode" />
         <Button variant="ghost" size="sm" @click="copyCode">
           <Icon :name="copied ? 'check' : 'copy'" :size="13" />
           <span>{{ copied ? '已复制' : '复制' }}</span>
@@ -172,7 +171,7 @@ onBeforeUnmount(() => {
       <div class="flex flex-col items-center gap-3 py-4">
         <div class="w-10 h-10 rounded-full border-2 border-line border-t-accent animate-spin"></div>
         <p class="text-sm text-ink-muted text-center">
-          请在浏览器或密码管理器弹窗中为此设备注册 Passkey，下次可直接登录。
+          请在浏览器或密码管理器弹窗中为此设备注册 Passkey，用于下次登录。
         </p>
       </div>
     </template>

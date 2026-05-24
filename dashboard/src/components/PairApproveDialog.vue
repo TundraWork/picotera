@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { SidePanel, Button, Input, Field, Icon } from '@/ui'
+import { SidePanel, Button, Field, Icon } from '@/ui'
+import PairingCode from '@/components/PairingCode.vue'
+import PairingCodeInput from '@/components/PairingCodeInput.vue'
 import {
   pairLookup,
   pairApprove,
@@ -13,12 +15,13 @@ const emit = defineEmits<{ close: [] }>()
 type Phase = 'enter' | 'confirm' | 'approving' | 'done'
 
 const phase = ref<Phase>('enter')
+// code is the already-normalized 8-char string (PairingCodeInput strips
+// separators and uppercases as the user types).
 const code = ref('')
 const error = ref('')
 const lookup = ref<PairLookupResponse | null>(null)
 
-const normalizedCode = computed(() => code.value.replace(/[\s-]/g, '').toUpperCase())
-const ready = computed(() => normalizedCode.value.length === 8)
+const ready = computed(() => code.value.length === 8)
 
 async function onLookup() {
   if (!ready.value) {
@@ -27,7 +30,7 @@ async function onLookup() {
   }
   error.value = ''
   try {
-    lookup.value = await pairLookup(normalizedCode.value)
+    lookup.value = await pairLookup(code.value)
     phase.value = 'confirm'
   } catch (e: unknown) {
     error.value = e instanceof ApiRequestError ? e.message : '查找失败'
@@ -39,7 +42,7 @@ async function onApprove() {
   phase.value = 'approving'
   error.value = ''
   try {
-    await pairApprove(normalizedCode.value)
+    await pairApprove(code.value)
     phase.value = 'done'
   } catch (e: unknown) {
     error.value = e instanceof ApiRequestError ? e.message : '批准失败'
@@ -66,14 +69,7 @@ function fmtTime(iso?: string | null): string {
           在新设备的登录页点击「无 Passkey 登录」→「有」，将显示的 8 位配对码输入下方。
         </p>
         <Field label="配对码">
-          <Input
-            v-model="code"
-            mono
-            autofocus
-            placeholder="例如 ABCD-EFGH"
-            maxlength="9"
-            @keydown.enter="onLookup"
-          />
+          <PairingCodeInput v-model="code" @enter="onLookup" />
         </Field>
         <p v-if="error" class="text-sm text-err">{{ error }}</p>
       </div>
@@ -86,9 +82,7 @@ function fmtTime(iso?: string | null): string {
         </div>
         <div class="flex flex-col items-center gap-1 my-1">
           <span class="text-xs text-ink-faint">请核对与新设备屏幕显示的 8 位配对码一致：</span>
-          <div class="font-mono text-2xl tracking-widest text-ink tabular-nums">
-            {{ lookup.displayCode }}
-          </div>
+          <PairingCode :code="lookup.displayCode" size="md" />
         </div>
         <div class="rounded-md border border-line bg-surface-100 px-4 py-3 flex flex-col gap-2">
           <div class="flex items-baseline gap-3">
