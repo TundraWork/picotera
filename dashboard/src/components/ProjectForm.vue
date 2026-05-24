@@ -95,9 +95,21 @@ async function submit() {
             添加路径
           </button>
         </div>
-        <p class="text-2xs text-ink-faint pt-2">
-          请求体中匹配到的路径将以最长前缀方式归入此项目。空白条目会被忽略。
-        </p>
+        <ul class="text-2xs text-ink-faint pt-2 flex flex-col gap-0.5 list-disc list-inside pl-1">
+          <li>请求体中匹配到的路径将以最长前缀归入此项目。空白条目会被忽略。</li>
+          <li>
+            末尾加 <code class="font-mono">/</code> 严格匹配子目录：
+            <code class="font-mono">/path/to/foo/</code> 只匹配
+            <code class="font-mono">/path/to/foo/…</code>，不会误匹配
+            <code class="font-mono">/path/to/foo-bar</code>。
+          </li>
+          <li>
+            Windows 路径用 <code class="font-mono">\</code> 或
+            <code class="font-mono">/</code> 都可（如
+            <code class="font-mono">C:\Users\foo\</code> 或
+            <code class="font-mono">C:/Users/foo/</code>）。
+          </li>
+        </ul>
       </Field>
     </form>
 

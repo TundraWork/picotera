@@ -87,6 +87,67 @@ func TestPrefixMatcher_NonPrefixCandidateDoesNotMatch(t *testing.T) {
 	}
 }
 
+func TestPrefixMatcher_TrailingSlashStrictDirectoryPrefix(t *testing.T) {
+	// /path/to/project/ — with trailing slash — should only match
+	// candidates that are children of that directory. /path/to/project-b/x
+	// is a different directory and must NOT match.
+	m := buildPrefixMatcher([]projectEntry{
+		{path: "/path/to/project/", projectID: 1},
+	})
+	if id, ok := m.match([]string{"/path/to/project/src/main.go"}); !ok || id != 1 {
+		t.Errorf("strict directory child should match: got (%d, %v)", id, ok)
+	}
+	if _, ok := m.match([]string{"/path/to/project-b/src/main.go"}); ok {
+		t.Error("sibling directory must not match strict-prefix entry")
+	}
+}
+
+func TestPrefixMatcher_NoTrailingSlashIsLoose(t *testing.T) {
+	// Backward-compat: /path/to/project (no trailing slash) keeps the
+	// original loose byte-prefix behaviour.
+	m := buildPrefixMatcher([]projectEntry{
+		{path: "/path/to/project", projectID: 1},
+	})
+	if _, ok := m.match([]string{"/path/to/project/x"}); !ok {
+		t.Error("loose entry should match the directory child")
+	}
+	if _, ok := m.match([]string{"/path/to/project-b/x"}); !ok {
+		t.Error("loose entry should also match the sibling — that's the documented loose behaviour")
+	}
+}
+
+func TestPrefixMatcher_WindowsPathBackslash(t *testing.T) {
+	// Windows-style entry; candidate uses the same backslashes.
+	m := buildPrefixMatcher([]projectEntry{
+		{path: `C:\Users\alice\projects\`, projectID: 1},
+	})
+	if id, ok := m.match([]string{`C:\Users\alice\projects\foo\main.go`}); !ok || id != 1 {
+		t.Errorf("windows directory child should match: got (%d, %v)", id, ok)
+	}
+	if _, ok := m.match([]string{`C:\Users\alice\projects-other\x`}); ok {
+		t.Error("windows strict-prefix entry must not match sibling directory")
+	}
+}
+
+func TestPrefixMatcher_WindowsMixedSeparators(t *testing.T) {
+	// Entry uses backslashes, candidate uses forward slashes (or vice
+	// versa). Normalization converts both to forward-slash form before
+	// matching, so they line up.
+	m := buildPrefixMatcher([]projectEntry{
+		{path: `C:\Users\alice\projects\`, projectID: 1},
+	})
+	if id, ok := m.match([]string{"C:/Users/alice/projects/foo/main.go"}); !ok || id != 1 {
+		t.Errorf("forward-slash candidate should match backslash entry: got (%d, %v)", id, ok)
+	}
+	// Reverse: forward-slash entry, backslash candidate.
+	m2 := buildPrefixMatcher([]projectEntry{
+		{path: "/home/alice/projects/", projectID: 2},
+	})
+	if id, ok := m2.match([]string{`\home\alice\projects\foo`}); !ok || id != 2 {
+		t.Errorf("backslash candidate should match forward-slash entry: got (%d, %v)", id, ok)
+	}
+}
+
 func TestPrefixMatcher_EmptyPathsSkipped(t *testing.T) {
 	// Defensive: an entry with empty path mustn't make every candidate match.
 	m := buildPrefixMatcher([]projectEntry{
