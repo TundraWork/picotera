@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useQuery } from '@tanstack/vue-query'
 import { useProvidersMap } from '@/composables/useProvidersMap'
 import { useProjectsMap } from '@/composables/useProjectsMap'
+import { useSession } from '@/composables/useSession'
 import type { RequestView, EndpointView, ModelView } from '@/api'
 import { listEndpoints, listModels, listRequests } from '@/api/client'
 import { queryKeys, type RequestsFilters } from '@/api/queryKeys'
@@ -27,6 +28,20 @@ import {
 const panel = useSidePanel()
 const route = useRoute()
 const router = useRouter()
+const session = useSession()
+// Filters are independently gated per permission. The backend scopes rows
+// per role (admin global / non-admin own) transparently, so the page renders
+// the same UI for both — each filter UI is shown iff the user has the
+// permission backing the data the filter needs.
+//
+// - canFilterByModel: model/upstream/endpoint dropdowns need /models +
+//   /endpoints, both gated on view_models.
+// - canFilterByProject: project dropdown needs /projects, gated on
+//   manage_own_projects.
+// - canFilterByProvider: provider dropdown needs /providers (admin-only).
+const canFilterByModel = computed(() => session.can('view_models'))
+const canFilterByProject = computed(() => session.can('manage_own_projects'))
+const canFilterByProvider = computed(() => session.isAdmin.value)
 const { providers, providerLabel } = useProvidersMap()
 const { projects, projectLabel } = useProjectsMap()
 
@@ -62,15 +77,22 @@ const hasPaginationHistory = ref(!initialCursor)
 const endpointsQuery = useQuery({
   queryKey: queryKeys.endpoints.all,
   queryFn: listEndpoints,
+  enabled: canFilterByModel,
 })
 const modelsQuery = useQuery({
   queryKey: queryKeys.models.all,
   queryFn: listModels,
+  enabled: canFilterByModel,
 })
 const endpoints = computed<EndpointView[]>(() => endpointsQuery.data.value ?? [])
 const models = computed<ModelView[]>(() => modelsQuery.data.value ?? [])
 
 const requestFilters = computed<RequestsFilters>(() => {
+  // Only include filters the user has the permission to populate. The
+  // backend accepts the same filter shape on both admin and scoped paths
+  // (scoped just adds account_id = caller), so a non-admin with view_models
+  // can filter their own requests by model exactly like an admin filters
+  // globally.
   const out: {
     type?: number
     providerId?: number
@@ -82,12 +104,12 @@ const requestFilters = computed<RequestsFilters>(() => {
   } = {}
   if (filters.type === 'meta') out.type = 0
   else if (filters.type === 'upstream') out.type = 1
-  if (filters.providerId) out.providerId = filters.providerId
-  if (filters.endpointPath) out.endpointPath = filters.endpointPath
-  if (filters.model) out.model = filters.model
-  if (filters.upstreamModel) out.upstreamModel = filters.upstreamModel
+  if (canFilterByProvider.value && filters.providerId) out.providerId = filters.providerId
+  if (canFilterByModel.value && filters.endpointPath) out.endpointPath = filters.endpointPath
+  if (canFilterByModel.value && filters.model) out.model = filters.model
+  if (canFilterByModel.value && filters.upstreamModel) out.upstreamModel = filters.upstreamModel
   if (filters.traceId) out.traceId = filters.traceId
-  if (filters.projectId) out.projectId = filters.projectId
+  if (canFilterByProject.value && filters.projectId) out.projectId = filters.projectId
   return out
 })
 
@@ -524,43 +546,51 @@ function resetCursorAndReload() {
       >
         <template #header-projectId>
           <ColumnFilter
+            v-if="canFilterByProject"
             v-model.number="filters.projectId"
             label="项目"
             :options="projectOptions"
             :empty-value="0"
             placeholder="过滤项目…"
           />
+          <span v-else class="text-xs text-ink-muted">项目</span>
         </template>
         <template #header-providerId>
           <ColumnFilter
+            v-if="canFilterByProvider"
             v-model.number="filters.providerId"
             label="渠道"
             :options="providerOptions"
             :empty-value="0"
             placeholder="过滤渠道…"
           />
+          <span v-else class="text-xs text-ink-muted">渠道</span>
         </template>
         <template #header-endpointPath>
           <ColumnFilter
+            v-if="canFilterByModel"
             v-model="filters.endpointPath"
             label="端点"
             :options="endpointOptions"
             placeholder="过滤端点…"
           />
+          <span v-else class="text-xs text-ink-muted">端点</span>
         </template>
         <template #header-model>
-          <ColumnFilter
-            v-model="filters.model"
-            label="模型"
-            :options="modelOptions"
-            placeholder="按路由的模型过滤"
-          />
-          <ColumnFilter
-            v-model="filters.upstreamModel"
-            label="上游"
-            :options="upstreamModelOptions"
-            placeholder="按实际发到上游的模型过滤"
-          />
+          <template v-if="canFilterByModel">
+            <ColumnFilter
+              v-model="filters.model"
+              label="模型"
+              :options="modelOptions"
+              placeholder="按路由的模型过滤"
+            />
+            <ColumnFilter
+              v-model="filters.upstreamModel"
+              label="上游"
+              :options="upstreamModelOptions"
+              placeholder="按实际发到上游的模型过滤"
+            />
+          </template>
         </template>
         <template #cell-createdAt="{ row }">
           <div class="flex flex-col leading-tight">

@@ -225,6 +225,36 @@ func (s *Server) authenticateClient(ctx context.Context, r *http.Request, resolv
 			code:    errorx.Forbidden.Error(),
 		}
 	}
+	// Owner check: reject if the owning account is disabled. Post-030
+	// api_key.account_id is NOT NULL and the FK CASCADES on account delete,
+	// so a missing owner means a write-skew race we should fail closed on.
+	acct, err := s.queries.GetAccountByID(ctx, row.AccountID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			logx.WithContext(ctx).WithFields(map[string]any{
+				"api_key_id": row.ID,
+				"account_id": row.AccountID,
+			}).Warn("gateway auth: api_key owner missing")
+			return nil, &gatewayError{
+				status:  http.StatusForbidden,
+				message: "api key owner unavailable",
+				code:    errorx.Forbidden.Error(),
+			}
+		}
+		logx.WithContext(ctx).WithError(err).Error("gateway auth: load owner failed")
+		return nil, &gatewayError{
+			status:  http.StatusInternalServerError,
+			message: "failed to query account",
+			code:    errorx.InternalError.Error(),
+		}
+	}
+	if acct.Disabled {
+		return nil, &gatewayError{
+			status:  http.StatusForbidden,
+			message: "account disabled",
+			code:    errorx.Forbidden.Error(),
+		}
+	}
 	return &row, nil
 }
 
@@ -580,13 +610,33 @@ func (s *Server) insertRequest(ctx context.Context, arg db.InsertRequestParams) 
 	return insertedAt
 }
 
-// extractProjectID runs the project regexes over body and asks the project
-// router for a match. Errors are logged and treated as "no match".
-func (s *Server) extractProjectID(ctx context.Context, body []byte) pgtype.Int4 {
+// extractProjectCandidates runs the project regexes over body and returns
+// the deduped candidate path strings. Pure — no DB, no account context. The
+// candidates are resolved later by resolveProjectForAccount once the caller
+// is authenticated.
+func (s *Server) extractProjectCandidates(ctx context.Context, body []byte) []string {
 	if s.projectExtractor == nil {
+		return nil
+	}
+	return s.projectExtractor.ExtractCandidates(ctx, body)
+}
+
+// resolveProjectForAccount asks the per-account router for a project
+// matching any candidate path within accountID's project namespace.
+// Returns the matched id when found; otherwise returns an invalid pgtype.Int4
+// so the request row's project_id stays NULL. Projects are user-configured;
+// the gateway is a passive matcher and never writes to the project table.
+//
+// accountID == 0 means no authenticated caller (e.g. pre-auth failure): we
+// never tag such requests.
+//
+// Errors are logged and treated as "no match" — the gateway continues
+// without a project tag rather than failing the request.
+func (s *Server) resolveProjectForAccount(ctx context.Context, accountID int32, candidates []string) pgtype.Int4 {
+	if s.projectExtractor == nil || accountID == 0 || len(candidates) == 0 {
 		return pgtype.Int4{Valid: false}
 	}
-	id, ok, err := s.projectExtractor.Extract(ctx, body)
+	id, ok, err := s.projectExtractor.ResolveForAccount(ctx, accountID, candidates)
 	if err != nil {
 		logx.WithContext(ctx).WithError(err).Warn("project extractor failed")
 		return pgtype.Int4{Valid: false}
@@ -595,6 +645,17 @@ func (s *Server) extractProjectID(ctx context.Context, body []byte) pgtype.Int4 
 		return pgtype.Int4{Valid: false}
 	}
 	return pgtype.Int4{Int32: id, Valid: true}
+}
+
+// accountIDForAPIKey returns the apiKey's owning account_id, or 0 when apiKey
+// is nil (pre-auth / failed-auth path). Post-migration 030, api_key.account_id
+// is NOT NULL so every authenticated key has an owner; the zero return only
+// happens when there is no key at all.
+func accountIDForAPIKey(apiKey *db.ApiKey) int32 {
+	if apiKey == nil {
+		return 0
+	}
+	return apiKey.AccountID
 }
 
 // upsertProjectSeen updates project.first_seen_at / last_seen_at for the
@@ -637,6 +698,30 @@ func (s *Server) updateRequestOnHeader(ctx context.Context, arg db.UpdateRequest
 func (s *Server) updateRequestModel(ctx context.Context, arg db.UpdateRequestModelParams) {
 	if err := s.queries.UpdateRequestModel(ctx, arg); err != nil {
 		logx.WithContext(ctx).WithError(err).Error("failed to update request model")
+	}
+}
+
+// updateRequestProjectID backfills the meta request row's project_id once
+// the account-scoped project resolution settles (post-authentication).
+// Uses a 5 s timeout — matching upsertProjectSeen — so a slow DB cannot
+// hold up the goroutine indefinitely. Errors are logged but do not affect
+// the response.
+func (s *Server) updateRequestProjectID(ctx context.Context, arg db.UpdateRequestProjectIDParams) {
+	tctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := s.queries.UpdateRequestProjectID(tctx, arg); err != nil {
+		logx.WithContext(ctx).WithError(err).Error("failed to update request project id")
+	}
+}
+
+// updateRequestAccountID backfills the meta request row's account_id once
+// authentication succeeds. Mirrors updateRequestProjectID — same lifecycle,
+// same logging policy.
+func (s *Server) updateRequestAccountID(ctx context.Context, arg db.UpdateRequestAccountIDParams) {
+	tctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := s.queries.UpdateRequestAccountID(tctx, arg); err != nil {
+		logx.WithContext(ctx).WithError(err).Error("failed to update request account id")
 	}
 }
 

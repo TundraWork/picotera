@@ -3,11 +3,19 @@ import { useQuery } from '@tanstack/vue-query'
 import { listProjects } from '@/api/client'
 import { queryKeys } from '@/api/queryKeys'
 import type { ProjectView } from '@/api'
+import { useSession } from '@/composables/useSession'
 
 export function useProjectsMap() {
+  const session = useSession()
+  // Projects are user-bound: every caller with manage_own_projects sees
+  // their own rows (admin auto-passes can()). The fetcher returns only the
+  // caller's projects; cross-account labels (e.g. someone else's request
+  // showing on an admin dashboard view) fall back to ID via projectLabel().
+  const canView = computed(() => session.can('manage_own_projects'))
   const query = useQuery({
     queryKey: queryKeys.projects.all,
     queryFn: listProjects,
+    enabled: canView,
   })
   const projects = computed(() => query.data.value ?? [])
   const projectsMap = computed(() => {

@@ -61,7 +61,17 @@ func (h *gatewayHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	metaReqMethod := r.Method
 	metaReqURL := r.URL.String()
 	userMessagePreview := extractUserMessagePreview(body, endpoint.EndpointType)
-	projectIDPg := h.extractProjectID(r.Context(), body)
+	// Project candidate extraction is pure (regex over body) and runs early so
+	// failures in the auth phase still get logged. Resolution to a project_id
+	// is deferred until after authentication, since projects are user-bound
+	// and the api_key.account_id is the lookup key. projectIDPg stays invalid
+	// here; we backfill it on the meta row via updateRequestProjectID once
+	// resolveProjectForAccount completes.
+	projectCandidates := h.extractProjectCandidates(r.Context(), body)
+	var projectIDPg pgtype.Int4
+	// account_id is also deferred until after auth (mirror of project_id) and
+	// backfilled via updateRequestAccountID once authenticateClient returns.
+	var accountIDPg pgtype.Int4
 	metaCreatedAt := h.insertRequest(bgCtx, db.InsertRequestParams{
 		ID:                 metaID,
 		SpanID:             pgtype.Text{String: metaID, Valid: true},
@@ -78,11 +88,9 @@ func (h *gatewayHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		TimeSpentMs:        pgtype.Int4{Valid: false},
 		UserMessagePreview: userMessagePreview,
 		ProjectID:          projectIDPg,
+		AccountID:          accountIDPg,
 		CreatedAt:          pgtype.Timestamp{Time: metaIDCreatedAt, Valid: true},
 	})
-	if projectIDPg.Valid {
-		go h.upsertProjectSeen(projectIDPg.Int32, metaCreatedAt)
-	}
 
 	h.uploadRequestArtifact(bgCtx, metaID, metaCreatedAt, metaReqMethod, metaReqURL, metaReqHeader, body)
 
@@ -158,6 +166,30 @@ func (h *gatewayHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		Status:       db.RequestStatusPending,
 		CreatedAt:    pgtype.Timestamp{Time: metaCreatedAt, Valid: true},
 	})
+
+	// Resolve project_id within the api_key's account namespace. System keys
+	// (api_key.account_id IS NULL) never tag a project; the auto-create path
+	// is also skipped because accountID == 0. The resolved id flows into
+	// every subsequent upstream row's ProjectID and onto the meta row via
+	// the backfill below.
+	apiKeyAccountID := accountIDForAPIKey(apiKey)
+	accountIDPg = pgtype.Int4{Int32: apiKeyAccountID, Valid: apiKeyAccountID != 0}
+	if accountIDPg.Valid {
+		h.updateRequestAccountID(bgCtx, db.UpdateRequestAccountIDParams{
+			ID:        metaID,
+			AccountID: accountIDPg,
+			CreatedAt: pgtype.Timestamp{Time: metaCreatedAt, Valid: true},
+		})
+	}
+	projectIDPg = h.resolveProjectForAccount(r.Context(), apiKeyAccountID, projectCandidates)
+	if projectIDPg.Valid {
+		h.updateRequestProjectID(bgCtx, db.UpdateRequestProjectIDParams{
+			ID:        metaID,
+			ProjectID: projectIDPg,
+			CreatedAt: pgtype.Timestamp{Time: metaCreatedAt, Valid: true},
+		})
+		go h.upsertProjectSeen(projectIDPg.Int32, metaCreatedAt)
+	}
 
 	// 5. Extract model name. When endpoint.ModelPath is empty the endpoint is
 	// a "no-model" endpoint: all providers bound to the path are candidates,
@@ -431,6 +463,7 @@ func (h *gatewayHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			TimeSpentMs:        pgtype.Int4{Valid: false},
 			UserMessagePreview: pgtype.Text{Valid: false},
 			ProjectID:          projectIDPg,
+			AccountID:          accountIDPg,
 			CreatedAt:          pgtype.Timestamp{Time: upstreamIDCreatedAt, Valid: true},
 		})
 
@@ -504,6 +537,7 @@ func (h *gatewayHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			lastJSErr = &jsx.LastError{ProviderID: int(providerID), StatusCode: resp.StatusCode, Message: errMsg}
 			currentRetryCount++
 			totalAttemptCount++
+			cancel()
 			continue
 		}
 		respBody, rerr := io.ReadAll(decoded.Body)
@@ -515,6 +549,7 @@ func (h *gatewayHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			lastJSErr = &jsx.LastError{ProviderID: int(providerID), StatusCode: resp.StatusCode, Message: errMsg}
 			currentRetryCount++
 			totalAttemptCount++
+			cancel()
 			continue
 		}
 		h.uploadResponseArtifact(bgCtx, upstreamID, upstreamCreatedAt, resp.StatusCode, resp.Header.Clone(), respBody)

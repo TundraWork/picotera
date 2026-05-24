@@ -1,5 +1,46 @@
 components:
   schemas:
+    AccountView:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          example: https://example.com/schemas/AccountView.json
+          format: uri
+          readOnly: true
+          type: string
+        createdAt:
+          format: date-time
+          type: string
+        disabled:
+          type: boolean
+        displayName:
+          type: string
+        id:
+          format: int32
+          type: integer
+        lastSignInAt:
+          format: date-time
+          type: string
+        permissions:
+          $ref: "#/components/schemas/Permissions"
+        role:
+          type: string
+        updatedAt:
+          format: date-time
+          type: string
+        username:
+          type: string
+      required:
+        - id
+        - username
+        - displayName
+        - role
+        - permissions
+        - disabled
+        - createdAt
+        - updatedAt
+      type: object
     ApiKeyMutateBody:
       additionalProperties: false
       properties:
@@ -57,6 +98,37 @@ components:
         - createdAt
         - updatedAt
       type: object
+    AuthStatus:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          example: https://example.com/schemas/AuthStatus.json
+          format: uri
+          readOnly: true
+          type: string
+        bootstrapped:
+          type: boolean
+      required:
+        - bootstrapped
+      type: object
+    CreateInvitationInBody:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          example: https://example.com/schemas/CreateInvitationInBody.json
+          format: uri
+          readOnly: true
+          type: string
+        permissions:
+          $ref: "#/components/schemas/Permissions"
+        role:
+          type: string
+      required:
+        - role
+        - permissions
+      type: object
     CreateProviderRequestBody:
       additionalProperties: false
       properties:
@@ -107,6 +179,73 @@ components:
         - annotations
         - disabled
         - supportsNativeWebSearch
+      type: object
+    CredentialView:
+      additionalProperties: false
+      properties:
+        attestationType:
+          type: string
+        backupState:
+          type: boolean
+        createdAt:
+          format: date-time
+          type: string
+        credentialIdSuffix:
+          type: string
+        id:
+          format: int32
+          type: integer
+        lastUsedAt:
+          format: date-time
+          type: string
+        nickname:
+          type: string
+        transports:
+          items:
+            type: string
+          nullable: true
+          type: array
+      required:
+        - id
+        - credentialIdSuffix
+        - transports
+        - backupState
+        - attestationType
+        - createdAt
+      type: object
+    DeleteAccountCredentialInBody:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          example: https://example.com/schemas/DeleteAccountCredentialInBody.json
+          format: uri
+          readOnly: true
+          type: string
+        accountId:
+          format: int32
+          type: integer
+        credentialId:
+          format: int32
+          type: integer
+      required:
+        - accountId
+        - credentialId
+      type: object
+    DeleteAccountInBody:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          example: https://example.com/schemas/DeleteAccountInBody.json
+          format: uri
+          readOnly: true
+          type: string
+        id:
+          format: int32
+          type: integer
+      required:
+        - id
       type: object
     DeleteApiKeyRequestBody:
       additionalProperties: false
@@ -178,6 +317,21 @@ components:
           type: string
       required:
         - name
+      type: object
+    DeleteMyCredentialInBody:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          example: https://example.com/schemas/DeleteMyCredentialInBody.json
+          format: uri
+          readOnly: true
+          type: string
+        id:
+          format: int32
+          type: integer
+      required:
+        - id
       type: object
     DeleteProjectRequestBody:
       additionalProperties: false
@@ -284,6 +438,55 @@ components:
         - credentialsResolver
         - endpointType
       type: object
+    EnrollmentPreview:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          example: https://example.com/schemas/EnrollmentPreview.json
+          format: uri
+          readOnly: true
+          type: string
+        expiresAt:
+          format: date-time
+          type: string
+        intent:
+          type: string
+        target:
+          $ref: "#/components/schemas/EnrollmentTarget"
+      required:
+        - intent
+        - expiresAt
+      type: object
+    EnrollmentTarget:
+      additionalProperties: false
+      properties:
+        displayName:
+          type: string
+        username:
+          type: string
+      required:
+        - username
+        - displayName
+      type: object
+    EnrollmentURLResponse:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          example: https://example.com/schemas/EnrollmentURLResponse.json
+          format: uri
+          readOnly: true
+          type: string
+        expiresAt:
+          format: date-time
+          type: string
+        url:
+          type: string
+      required:
+        - url
+        - expiresAt
+      type: object
     ExchangeRateView:
       additionalProperties: false
       properties:
@@ -349,6 +552,49 @@ components:
         - providerId
         - providerModels
         - removedModels
+      type: object
+    InvitationResponse:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          example: https://example.com/schemas/InvitationResponse.json
+          format: uri
+          readOnly: true
+          type: string
+        expiresAt:
+          format: date-time
+          type: string
+        url:
+          type: string
+      required:
+        - url
+        - expiresAt
+      type: object
+    InvitationView:
+      additionalProperties: false
+      properties:
+        createdAt:
+          format: date-time
+          type: string
+        expiresAt:
+          format: date-time
+          type: string
+        permissions:
+          $ref: "#/components/schemas/Permissions"
+        role:
+          type: string
+        token:
+          type: string
+        url:
+          type: string
+      required:
+        - token
+        - url
+        - role
+        - permissions
+        - createdAt
+        - expiresAt
       type: object
     KvEntryView:
       additionalProperties: false
@@ -761,6 +1007,26 @@ components:
       required:
         - hasMore
       type: object
+    Permissions:
+      additionalProperties: false
+      properties:
+        manage_own_api_keys:
+          type: boolean
+        manage_own_projects:
+          type: boolean
+        view_models:
+          type: boolean
+        view_own_traces:
+          type: boolean
+        view_own_usage:
+          type: boolean
+      required:
+        - view_own_usage
+        - manage_own_api_keys
+        - view_models
+        - view_own_traces
+        - manage_own_projects
+      type: object
     PicoTeraError:
       additionalProperties: false
       properties:
@@ -1003,6 +1269,38 @@ components:
         - disabled
         - supportsNativeWebSearch
       type: object
+    ReissueEnrollmentInBody:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          example: https://example.com/schemas/ReissueEnrollmentInBody.json
+          format: uri
+          readOnly: true
+          type: string
+        id:
+          format: int32
+          type: integer
+      required:
+        - id
+      type: object
+    RenameMyCredentialInBody:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          example: https://example.com/schemas/RenameMyCredentialInBody.json
+          format: uri
+          readOnly: true
+          type: string
+        id:
+          format: int32
+          type: integer
+        nickname:
+          type: string
+      required:
+        - id
+      type: object
     RequestTraceView:
       additionalProperties: false
       properties:
@@ -1141,6 +1439,64 @@ components:
         - type
         - status
       type: object
+    RevokeAccountSessionsInBody:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          example: https://example.com/schemas/RevokeAccountSessionsInBody.json
+          format: uri
+          readOnly: true
+          type: string
+        id:
+          format: int32
+          type: integer
+      required:
+        - id
+      type: object
+    RevokeAccountSessionsOutBody:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          example: https://example.com/schemas/RevokeAccountSessionsOutBody.json
+          format: uri
+          readOnly: true
+          type: string
+        revoked:
+          format: int64
+          type: integer
+      required:
+        - revoked
+      type: object
+    RevokeInvitationInBody:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          example: https://example.com/schemas/RevokeInvitationInBody.json
+          format: uri
+          readOnly: true
+          type: string
+        token:
+          type: string
+      required:
+        - token
+      type: object
+    RevokeMySessionInBody:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          example: https://example.com/schemas/RevokeMySessionInBody.json
+          format: uri
+          readOnly: true
+          type: string
+        id:
+          type: string
+      required:
+        - id
+      type: object
     ScriptMutateBody:
       additionalProperties: false
       properties:
@@ -1189,6 +1545,57 @@ components:
         - enabled
         - createdAt
         - updatedAt
+      type: object
+    SessionListItem:
+      additionalProperties: false
+      properties:
+        expiresAt:
+          format: date-time
+          type: string
+        id:
+          type: string
+        isCurrent:
+          type: boolean
+        issuedAt:
+          format: date-time
+          type: string
+        lastSeenIp:
+          type: string
+        userAgent:
+          type: string
+      required:
+        - id
+        - isCurrent
+        - issuedAt
+        - expiresAt
+        - lastSeenIp
+      type: object
+    SessionView:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          example: https://example.com/schemas/SessionView.json
+          format: uri
+          readOnly: true
+          type: string
+        displayName:
+          type: string
+        id:
+          format: int32
+          type: integer
+        permissions:
+          $ref: "#/components/schemas/Permissions"
+        role:
+          type: string
+        username:
+          type: string
+      required:
+        - id
+        - username
+        - displayName
+        - role
+        - permissions
       type: object
     SimulateCandidate:
       additionalProperties: false
@@ -1394,6 +1801,31 @@ components:
         - currency
         - amount
       type: object
+    UpdateAccountInBody:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          example: https://example.com/schemas/UpdateAccountInBody.json
+          format: uri
+          readOnly: true
+          type: string
+        disabled:
+          type: boolean
+        displayName:
+          type: string
+        permissions:
+          $ref: "#/components/schemas/Permissions"
+        role:
+          type: string
+        username:
+          type: string
+      required:
+        - displayName
+        - role
+        - permissions
+        - disabled
+      type: object
     UpdateProviderModelsRequestBody:
       additionalProperties: false
       properties:
@@ -1488,11 +1920,187 @@ components:
         - disabled
         - supportsNativeWebSearch
       type: object
+  securitySchemes:
+    picoteraSession:
+      in: cookie
+      name: picotera_session
+      type: apiKey
 info:
   title: PicoTera Management API
   version: 1.0.0
 openapi: 3.0.3
 paths:
+  /api/picotera/accounts:
+    get:
+      operationId: listAccounts
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                items:
+                  $ref: "#/components/schemas/AccountView"
+                nullable: true
+                type: array
+          description: OK
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PicoTeraError"
+          description: Error
+      security:
+        - picoteraSession: []
+      summary: List all accounts (admin only).
+  /api/picotera/accounts/credentials/delete:
+    post:
+      operationId: deleteAccountCredential
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DeleteAccountCredentialInBody"
+        required: true
+      responses:
+        "204":
+          description: No Content
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PicoTeraError"
+          description: Error
+      security:
+        - picoteraSession: []
+      summary: Admin force-revoke of a specific credential.
+  /api/picotera/accounts/delete:
+    post:
+      operationId: deleteAccount
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DeleteAccountInBody"
+        required: true
+      responses:
+        "204":
+          description: No Content
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PicoTeraError"
+          description: Error
+      security:
+        - picoteraSession: []
+      summary: Hard-delete an account; api_key.account_id is set NULL.
+  /api/picotera/accounts/reissue-enrollment:
+    post:
+      operationId: reissueEnrollment
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReissueEnrollmentInBody"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EnrollmentURLResponse"
+          description: OK
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PicoTeraError"
+          description: Error
+      security:
+        - picoteraSession: []
+      summary: Issue a reset-intent enrollment URL for an account; reveal-once.
+  /api/picotera/accounts/revoke-sessions:
+    post:
+      operationId: revokeAccountSessions
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RevokeAccountSessionsInBody"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RevokeAccountSessionsOutBody"
+          description: OK
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PicoTeraError"
+          description: Error
+      security:
+        - picoteraSession: []
+      summary: Kick all active sessions for an account.
+  /api/picotera/accounts/{id}:
+    get:
+      operationId: getAccount
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            format: int32
+            type: integer
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AccountView"
+          description: OK
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PicoTeraError"
+          description: Error
+      security:
+        - picoteraSession: []
+      summary: Get one account by id (admin only).
+    put:
+      operationId: updateAccount
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            format: int32
+            type: integer
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateAccountInBody"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AccountView"
+          description: OK
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PicoTeraError"
+          description: Error
+      security:
+        - picoteraSession: []
+      summary: Update display name, role, permissions, or disabled flag on an account.
   /api/picotera/api-keys:
     get:
       operationId: listApiKeys
@@ -1512,6 +2120,8 @@ paths:
               schema:
                 $ref: "#/components/schemas/PicoTeraError"
           description: Error
+      security:
+        - picoteraSession: []
       summary: List all API keys
     post:
       operationId: createApiKey
@@ -1534,6 +2144,8 @@ paths:
               schema:
                 $ref: "#/components/schemas/PicoTeraError"
           description: Error
+      security:
+        - picoteraSession: []
       summary: Create an API key
   /api/picotera/api-keys/delete:
     post:
@@ -1553,6 +2165,8 @@ paths:
               schema:
                 $ref: "#/components/schemas/PicoTeraError"
           description: Error
+      security:
+        - picoteraSession: []
       summary: Delete an API key
   /api/picotera/api-keys/{id}:
     get:
@@ -1577,6 +2191,8 @@ paths:
               schema:
                 $ref: "#/components/schemas/PicoTeraError"
           description: Error
+      security:
+        - picoteraSession: []
       summary: Get an API key
     put:
       operationId: updateApiKey
@@ -1606,7 +2222,26 @@ paths:
               schema:
                 $ref: "#/components/schemas/PicoTeraError"
           description: Error
+      security:
+        - picoteraSession: []
       summary: Update an API key
+  /api/picotera/auth/status:
+    get:
+      operationId: getAuthStatus
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthStatus"
+          description: OK
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PicoTeraError"
+          description: Error
+      summary: Whether at least one non-disabled admin account exists.
   /api/picotera/endpoints:
     get:
       operationId: listEndpoints
@@ -1626,6 +2261,8 @@ paths:
               schema:
                 $ref: "#/components/schemas/PicoTeraError"
           description: Error
+      security:
+        - picoteraSession: []
       summary: List all endpoints
     put:
       operationId: upsertEndpoint
@@ -1648,6 +2285,8 @@ paths:
               schema:
                 $ref: "#/components/schemas/PicoTeraError"
           description: Error
+      security:
+        - picoteraSession: []
       summary: Upsert an endpoint
   /api/picotera/endpoints/delete:
     post:
@@ -1667,7 +2306,32 @@ paths:
               schema:
                 $ref: "#/components/schemas/PicoTeraError"
           description: Error
+      security:
+        - picoteraSession: []
       summary: Delete an endpoint
+  /api/picotera/enrollments/{token}:
+    get:
+      operationId: previewEnrollment
+      parameters:
+        - in: path
+          name: token
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EnrollmentPreview"
+          description: OK
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PicoTeraError"
+          description: Error
+      summary: Read the metadata of an enrollment token so the UI can render the right form.
   /api/picotera/exchange-rates:
     get:
       operationId: listExchangeRates
@@ -1687,6 +2351,8 @@ paths:
               schema:
                 $ref: "#/components/schemas/PicoTeraError"
           description: Error
+      security:
+        - picoteraSession: []
       summary: List all exchange rates
     put:
       operationId: putExchangeRate
@@ -1709,6 +2375,8 @@ paths:
               schema:
                 $ref: "#/components/schemas/PicoTeraError"
           description: Error
+      security:
+        - picoteraSession: []
       summary: Upsert an exchange rate
   /api/picotera/exchange-rates/delete:
     post:
@@ -1728,6 +2396,8 @@ paths:
               schema:
                 $ref: "#/components/schemas/PicoTeraError"
           description: Error
+      security:
+        - picoteraSession: []
       summary: Delete an exchange rate
   /api/picotera/exchange-rates/{code}:
     get:
@@ -1752,7 +2422,76 @@ paths:
               schema:
                 $ref: "#/components/schemas/PicoTeraError"
           description: Error
+      security:
+        - picoteraSession: []
       summary: Get an exchange rate by code
+  /api/picotera/invitations:
+    get:
+      operationId: listInvitations
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                items:
+                  $ref: "#/components/schemas/InvitationView"
+                nullable: true
+                type: array
+          description: OK
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PicoTeraError"
+          description: Error
+      security:
+        - picoteraSession: []
+      summary: List outstanding (unconsumed, unexpired) invitations.
+    post:
+      operationId: createInvitation
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateInvitationInBody"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InvitationResponse"
+          description: OK
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PicoTeraError"
+          description: Error
+      security:
+        - picoteraSession: []
+      summary: Create an invite-intent enrollment URL. The new account is created when the invitee consumes the URL.
+  /api/picotera/invitations/revoke:
+    post:
+      operationId: revokeInvitation
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RevokeInvitationInBody"
+        required: true
+      responses:
+        "204":
+          description: No Content
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PicoTeraError"
+          description: Error
+      security:
+        - picoteraSession: []
+      summary: Revoke a pending invitation by token.
   /api/picotera/kv:
     get:
       operationId: listKvEntries
@@ -1783,6 +2522,8 @@ paths:
               schema:
                 $ref: "#/components/schemas/PicoTeraError"
           description: Error
+      security:
+        - picoteraSession: []
       summary: List KV entries
   /api/picotera/kv/delete:
     post:
@@ -1802,6 +2543,8 @@ paths:
               schema:
                 $ref: "#/components/schemas/PicoTeraError"
           description: Error
+      security:
+        - picoteraSession: []
       summary: Delete a KV entry
   /api/picotera/kv/{key}:
     get:
@@ -1825,6 +2568,8 @@ paths:
               schema:
                 $ref: "#/components/schemas/PicoTeraError"
           description: Error
+      security:
+        - picoteraSession: []
       summary: Get a KV entry
     put:
       operationId: upsertKvEntry
@@ -1853,7 +2598,135 @@ paths:
               schema:
                 $ref: "#/components/schemas/PicoTeraError"
           description: Error
+      security:
+        - picoteraSession: []
       summary: Create or update a KV entry
+  /api/picotera/me:
+    get:
+      operationId: getMe
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SessionView"
+          description: OK
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PicoTeraError"
+          description: Error
+      security:
+        - picoteraSession: []
+      summary: Return the authenticated session view.
+  /api/picotera/me/credentials:
+    get:
+      operationId: listMyCredentials
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                items:
+                  $ref: "#/components/schemas/CredentialView"
+                nullable: true
+                type: array
+          description: OK
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PicoTeraError"
+          description: Error
+      security:
+        - picoteraSession: []
+      summary: List the caller's registered passkeys.
+  /api/picotera/me/credentials/delete:
+    post:
+      operationId: deleteMyCredential
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DeleteMyCredentialInBody"
+        required: true
+      responses:
+        "204":
+          description: No Content
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PicoTeraError"
+          description: Error
+      security:
+        - picoteraSession: []
+      summary: Remove one of the caller's passkeys (rejected when it would leave zero).
+  /api/picotera/me/credentials/rename:
+    post:
+      operationId: renameMyCredential
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RenameMyCredentialInBody"
+        required: true
+      responses:
+        "204":
+          description: No Content
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PicoTeraError"
+          description: Error
+      security:
+        - picoteraSession: []
+      summary: Rename one of the caller's own passkeys.
+  /api/picotera/me/sessions:
+    get:
+      operationId: listMySessions
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                items:
+                  $ref: "#/components/schemas/SessionListItem"
+                nullable: true
+                type: array
+          description: OK
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PicoTeraError"
+          description: Error
+      security:
+        - picoteraSession: []
+      summary: List the caller's active sessions across devices.
+  /api/picotera/me/sessions/revoke:
+    post:
+      operationId: revokeMySession
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RevokeMySessionInBody"
+        required: true
+      responses:
+        "204":
+          description: No Content
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PicoTeraError"
+          description: Error
+      security:
+        - picoteraSession: []
+      summary: Revoke one of the caller's sessions by id; cannot target the current session.
   /api/picotera/models:
     get:
       operationId: listModels
@@ -1873,6 +2746,8 @@ paths:
               schema:
                 $ref: "#/components/schemas/PicoTeraError"
           description: Error
+      security:
+        - picoteraSession: []
       summary: List all models
     put:
       operationId: putModel
@@ -1895,6 +2770,8 @@ paths:
               schema:
                 $ref: "#/components/schemas/PicoTeraError"
           description: Error
+      security:
+        - picoteraSession: []
       summary: Upsert a model
   /api/picotera/models/delete:
     post:
@@ -1914,6 +2791,8 @@ paths:
               schema:
                 $ref: "#/components/schemas/PicoTeraError"
           description: Error
+      security:
+        - picoteraSession: []
       summary: Delete a model
   /api/picotera/models/{name}:
     get:
@@ -1938,6 +2817,8 @@ paths:
               schema:
                 $ref: "#/components/schemas/PicoTeraError"
           description: Error
+      security:
+        - picoteraSession: []
       summary: Get a model by name
   /api/picotera/overview/distribution:
     get:
@@ -2011,6 +2892,8 @@ paths:
               schema:
                 $ref: "#/components/schemas/PicoTeraError"
           description: Error
+      security:
+        - picoteraSession: []
       summary: Get overview distribution for a dimension
   /api/picotera/overview/series:
     get:
@@ -2085,6 +2968,8 @@ paths:
               schema:
                 $ref: "#/components/schemas/PicoTeraError"
           description: Error
+      security:
+        - picoteraSession: []
       summary: Get hourly overview series for a dimension
   /api/picotera/overview/summary:
     get:
@@ -2146,6 +3031,8 @@ paths:
               schema:
                 $ref: "#/components/schemas/PicoTeraError"
           description: Error
+      security:
+        - picoteraSession: []
       summary: Get overview summary totals
   /api/picotera/pricing/matches:
     post:
@@ -2169,6 +3056,8 @@ paths:
               schema:
                 $ref: "#/components/schemas/PicoTeraError"
           description: Error
+      security:
+        - picoteraSession: []
       summary: Match built-in pricing candidates for a model
   /api/picotera/projects:
     get:
@@ -2189,6 +3078,8 @@ paths:
               schema:
                 $ref: "#/components/schemas/PicoTeraError"
           description: Error
+      security:
+        - picoteraSession: []
       summary: List all projects
     put:
       operationId: upsertProject
@@ -2211,6 +3102,8 @@ paths:
               schema:
                 $ref: "#/components/schemas/PicoTeraError"
           description: Error
+      security:
+        - picoteraSession: []
       summary: Upsert a project
   /api/picotera/projects/delete:
     post:
@@ -2230,6 +3123,8 @@ paths:
               schema:
                 $ref: "#/components/schemas/PicoTeraError"
           description: Error
+      security:
+        - picoteraSession: []
       summary: Delete a project
   /api/picotera/projects/{id}:
     get:
@@ -2254,6 +3149,8 @@ paths:
               schema:
                 $ref: "#/components/schemas/PicoTeraError"
           description: Error
+      security:
+        - picoteraSession: []
       summary: Get a project by ID
   /api/picotera/provider-endpoints:
     get:
@@ -2281,6 +3178,8 @@ paths:
               schema:
                 $ref: "#/components/schemas/PicoTeraError"
           description: Error
+      security:
+        - picoteraSession: []
       summary: List provider endpoints
     put:
       operationId: upsertProviderEndpoint
@@ -2303,6 +3202,8 @@ paths:
               schema:
                 $ref: "#/components/schemas/PicoTeraError"
           description: Error
+      security:
+        - picoteraSession: []
       summary: Upsert a provider endpoint
   /api/picotera/provider-endpoints/delete:
     post:
@@ -2322,6 +3223,8 @@ paths:
               schema:
                 $ref: "#/components/schemas/PicoTeraError"
           description: Error
+      security:
+        - picoteraSession: []
       summary: Delete a provider endpoint
   /api/picotera/providers:
     get:
@@ -2342,6 +3245,8 @@ paths:
               schema:
                 $ref: "#/components/schemas/PicoTeraError"
           description: Error
+      security:
+        - picoteraSession: []
       summary: List all providers
     post:
       operationId: createProvider
@@ -2364,6 +3269,8 @@ paths:
               schema:
                 $ref: "#/components/schemas/PicoTeraError"
           description: Error
+      security:
+        - picoteraSession: []
       summary: Create a new provider
     put:
       operationId: upsertProvider
@@ -2386,6 +3293,8 @@ paths:
               schema:
                 $ref: "#/components/schemas/PicoTeraError"
           description: Error
+      security:
+        - picoteraSession: []
       summary: Upsert a provider
   /api/picotera/providers/delete:
     post:
@@ -2405,6 +3314,8 @@ paths:
               schema:
                 $ref: "#/components/schemas/PicoTeraError"
           description: Error
+      security:
+        - picoteraSession: []
       summary: Delete a provider
   /api/picotera/providers/fetch-models:
     post:
@@ -2428,6 +3339,8 @@ paths:
               schema:
                 $ref: "#/components/schemas/PicoTeraError"
           description: Error
+      security:
+        - picoteraSession: []
       summary: Fetch model list from upstream provider
   /api/picotera/providers/{id}:
     get:
@@ -2453,6 +3366,8 @@ paths:
               schema:
                 $ref: "#/components/schemas/PicoTeraError"
           description: Error
+      security:
+        - picoteraSession: []
       summary: Get a provider by ID
   /api/picotera/providers/{id}/models:
     put:
@@ -2484,6 +3399,8 @@ paths:
               schema:
                 $ref: "#/components/schemas/PicoTeraError"
           description: Error
+      security:
+        - picoteraSession: []
       summary: Replace a provider's model list without touching other fields
   /api/picotera/request-traces:
     get:
@@ -2518,6 +3435,8 @@ paths:
               schema:
                 $ref: "#/components/schemas/PicoTeraError"
           description: Error
+      security:
+        - picoteraSession: []
       summary: List request traces
   /api/picotera/requests:
     get:
@@ -2591,6 +3510,8 @@ paths:
               schema:
                 $ref: "#/components/schemas/PicoTeraError"
           description: Error
+      security:
+        - picoteraSession: []
       summary: List requests
   /api/picotera/requests/{id}:
     get:
@@ -2614,6 +3535,8 @@ paths:
               schema:
                 $ref: "#/components/schemas/PicoTeraError"
           description: Error
+      security:
+        - picoteraSession: []
       summary: Get a request by ID
   /api/picotera/requests/{id}/spans:
     get:
@@ -2640,6 +3563,8 @@ paths:
               schema:
                 $ref: "#/components/schemas/PicoTeraError"
           description: Error
+      security:
+        - picoteraSession: []
       summary: List spans (meta + upstream) related to a request
   /api/picotera/scripts:
     get:
@@ -2660,6 +3585,8 @@ paths:
               schema:
                 $ref: "#/components/schemas/PicoTeraError"
           description: Error
+      security:
+        - picoteraSession: []
       summary: List all scripts
     post:
       operationId: createScript
@@ -2682,6 +3609,8 @@ paths:
               schema:
                 $ref: "#/components/schemas/PicoTeraError"
           description: Error
+      security:
+        - picoteraSession: []
       summary: Create a script
   /api/picotera/scripts/delete:
     post:
@@ -2701,6 +3630,8 @@ paths:
               schema:
                 $ref: "#/components/schemas/PicoTeraError"
           description: Error
+      security:
+        - picoteraSession: []
       summary: Delete a script
   /api/picotera/scripts/{id}:
     get:
@@ -2724,6 +3655,8 @@ paths:
               schema:
                 $ref: "#/components/schemas/PicoTeraError"
           description: Error
+      security:
+        - picoteraSession: []
       summary: Get a script
     put:
       operationId: updateScript
@@ -2752,6 +3685,8 @@ paths:
               schema:
                 $ref: "#/components/schemas/PicoTeraError"
           description: Error
+      security:
+        - picoteraSession: []
       summary: Update a script
   /api/picotera/simulate/dispatch:
     post:
@@ -2775,5 +3710,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/PicoTeraError"
           description: Error
+      security:
+        - picoteraSession: []
       summary: Simulate dispatch and return ranked candidates
 

@@ -104,6 +104,7 @@ func hasFilters(in contract.OverviewCommonRequest) bool {
 }
 
 func (s *Server) handleGetOverviewSummary(ctx context.Context, in *contract.GetOverviewSummaryRequest) (*contract.GetOverviewSummaryResponse, error) {
+	// Admin-only enforced by the operation's auth requirement (see server.go).
 	start, end, err := overviewWindow(in.Range, time.Now())
 	if err != nil {
 		return nil, huma.Error400BadRequest(err.Error())
@@ -209,6 +210,7 @@ func (s *Server) handleGetOverviewSummary(ctx context.Context, in *contract.GetO
 }
 
 func (s *Server) handleGetOverviewDistribution(ctx context.Context, in *contract.GetOverviewDistributionRequest) (*contract.GetOverviewDistributionResponse, error) {
+	// Admin-only enforced by the operation's auth requirement (see server.go).
 	start, end, err := overviewWindow(in.Range, time.Now())
 	if err != nil {
 		return nil, huma.Error400BadRequest(err.Error())
@@ -299,6 +301,7 @@ func emptyIfNil(in []contract.OverviewCostView) []contract.OverviewCostView {
 }
 
 func (s *Server) handleGetOverviewSeries(ctx context.Context, in *contract.GetOverviewSeriesRequest) (*contract.GetOverviewSeriesResponse, error) {
+	// Admin-only enforced by the operation's auth requirement (see server.go).
 	start, end, err := overviewWindow(in.Range, time.Now())
 	if err != nil {
 		return nil, huma.Error400BadRequest(err.Error())

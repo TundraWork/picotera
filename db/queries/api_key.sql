@@ -8,8 +8,8 @@ SELECT * FROM api_key WHERE id = $1 LIMIT 1;
 SELECT * FROM api_key WHERE key = $1 LIMIT 1;
 
 -- name: InsertApiKey :one
-INSERT INTO api_key (name, key, disabled, annotations)
-VALUES ($1, $2, $3, $4)
+INSERT INTO api_key (name, key, disabled, annotations, account_id)
+VALUES ($1, $2, $3, $4, $5)
 RETURNING *;
 
 -- name: UpdateApiKey :one
@@ -20,3 +20,9 @@ RETURNING *;
 
 -- name: DeleteApiKey :exec
 DELETE FROM api_key WHERE id = $1;
+
+-- name: ListApiKeysByAccount :many
+SELECT * FROM api_key WHERE account_id = $1 ORDER BY created_at DESC, id DESC;
+
+-- name: GetApiKeyOwnedBy :one
+SELECT * FROM api_key WHERE id = $1 AND account_id = $2 LIMIT 1;

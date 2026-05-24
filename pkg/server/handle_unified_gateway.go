@@ -68,7 +68,12 @@ func (s *Server) handleUnifiedGenerate(srcFormat llmbridge.Format) http.HandlerF
 		parentSpanID := extractParentSpanID(metaReqHeader)
 		parentSpanIDPg := pgtype.Text{String: parentSpanID, Valid: parentSpanID != ""}
 		userMessagePreview := extractUserMessagePreview(body, virtualEndpoint.EndpointType)
-		projectIDPg := h.extractProjectID(r.Context(), body)
+		// See handle_gateway.go for the late-binding rationale. Candidate
+		// extraction is pure; resolution waits for authentication so the
+		// per-account project namespace can be consulted.
+		projectCandidates := h.extractProjectCandidates(r.Context(), body)
+		var projectIDPg pgtype.Int4
+		var accountIDPg pgtype.Int4
 		metaCreatedAt := h.insertRequest(bgCtx, db.InsertRequestParams{
 			ID:                 metaID,
 			SpanID:             pgtype.Text{String: metaID, Valid: true},
@@ -85,11 +90,9 @@ func (s *Server) handleUnifiedGenerate(srcFormat llmbridge.Format) http.HandlerF
 			TimeSpentMs:        pgtype.Int4{Valid: false},
 			UserMessagePreview: userMessagePreview,
 			ProjectID:          projectIDPg,
+			AccountID:          accountIDPg,
 			CreatedAt:          pgtype.Timestamp{Time: metaIDCreatedAt, Valid: true},
 		})
-		if projectIDPg.Valid {
-			go h.upsertProjectSeen(projectIDPg.Int32, metaCreatedAt)
-		}
 		h.uploadRequestArtifact(bgCtx, metaID, metaCreatedAt, r.Method, r.URL.String(), metaReqHeader, body)
 
 		// 4. Failure-path closures. Mirrors handle_gateway.go so that meta
@@ -159,6 +162,27 @@ func (s *Server) handleUnifiedGenerate(srcFormat llmbridge.Format) http.HandlerF
 			Status:       db.RequestStatusPending,
 			CreatedAt:    pgtype.Timestamp{Time: metaCreatedAt, Valid: true},
 		})
+
+		// Resolve project_id within the api_key's account namespace (mirrors
+		// handle_gateway.go). System keys skip both lookup and auto-create.
+		apiKeyAccountID := accountIDForAPIKey(apiKey)
+		accountIDPg = pgtype.Int4{Int32: apiKeyAccountID, Valid: apiKeyAccountID != 0}
+		if accountIDPg.Valid {
+			h.updateRequestAccountID(bgCtx, db.UpdateRequestAccountIDParams{
+				ID:        metaID,
+				AccountID: accountIDPg,
+				CreatedAt: pgtype.Timestamp{Time: metaCreatedAt, Valid: true},
+			})
+		}
+		projectIDPg = h.resolveProjectForAccount(r.Context(), apiKeyAccountID, projectCandidates)
+		if projectIDPg.Valid {
+			h.updateRequestProjectID(bgCtx, db.UpdateRequestProjectIDParams{
+				ID:        metaID,
+				ProjectID: projectIDPg,
+				CreatedAt: pgtype.Timestamp{Time: metaCreatedAt, Valid: true},
+			})
+			go h.upsertProjectSeen(projectIDPg.Int32, metaCreatedAt)
+		}
 
 		// 6. Resolve model name and stream flag. Format-specific.
 		modelName, streaming, err := extractUnifiedModelAndStream(srcFormat, r, body)
@@ -426,6 +450,7 @@ func (s *Server) handleUnifiedGenerate(srcFormat llmbridge.Format) http.HandlerF
 				TimeSpentMs:        pgtype.Int4{Valid: false},
 				UserMessagePreview: pgtype.Text{Valid: false},
 				ProjectID:          projectIDPg,
+				AccountID:          accountIDPg,
 				CreatedAt:          pgtype.Timestamp{Time: upstreamIDCreatedAt, Valid: true},
 			})
 

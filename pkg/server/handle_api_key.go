@@ -4,14 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"strings"
 
+	"picotera/pkg/auth"
 	"picotera/pkg/contract"
 	"picotera/pkg/db"
 
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 )
 
 func marshalAnnotations(a map[string]string) ([]byte, error) {
@@ -21,17 +20,15 @@ func marshalAnnotations(a map[string]string) ([]byte, error) {
 	return json.Marshal(a)
 }
 
-func isUniqueViolation(err error) bool {
-	var pgErr *pgconn.PgError
-	if errors.As(err, &pgErr) && pgErr.Code == "23505" {
-		return true
-	}
-	// Defensive fallback for adapters that wrap the SQLSTATE differently.
-	return strings.Contains(err.Error(), "23505")
-}
-
 func (s *Server) handleListApiKeys(ctx context.Context, _ *struct{}) (*contract.ListApiKeysResponse, error) {
-	rows, err := s.queries.ListApiKeys(ctx)
+	sess := auth.SessionFromContext(ctx)
+	var rows []db.ApiKey
+	var err error
+	if sess.Account.Role == "admin" {
+		rows, err = s.queries.ListApiKeys(ctx)
+	} else {
+		rows, err = s.queries.ListApiKeysByAccount(ctx, sess.Account.ID)
+	}
 	if err != nil {
 		return nil, huma.Error500InternalServerError("failed to list api keys", err)
 	}
@@ -47,6 +44,20 @@ func (s *Server) handleListApiKeys(ctx context.Context, _ *struct{}) (*contract.
 }
 
 func (s *Server) handleGetApiKey(ctx context.Context, in *contract.GetApiKeyRequest) (*contract.GetApiKeyResponse, error) {
+	sess := auth.SessionFromContext(ctx)
+	if sess.Account.Role != "admin" {
+		// Non-admin may only see their own keys; treat not-owned as not-found to avoid leaking existence.
+		_, err := s.queries.GetApiKeyOwnedBy(ctx, db.GetApiKeyOwnedByParams{
+			ID:        in.ID,
+			AccountID: sess.Account.ID,
+		})
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return nil, huma.Error404NotFound("api key not found")
+			}
+			return nil, huma.Error500InternalServerError("failed to verify ownership", err)
+		}
+	}
 	r, err := s.queries.GetApiKey(ctx, in.ID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -69,15 +80,23 @@ func (s *Server) handleCreateApiKey(ctx context.Context, in *contract.CreateApiK
 	if err != nil {
 		return nil, huma.Error500InternalServerError("failed to encode annotations", err)
 	}
+	sess := auth.SessionFromContext(ctx)
 	r, err := s.queries.InsertApiKey(ctx, db.InsertApiKeyParams{
 		Name:        in.Body.Name,
 		Key:         in.Body.Key,
 		Disabled:    in.Body.Disabled,
 		Annotations: annotations,
+		AccountID:   sess.Account.ID,
 	})
 	if err != nil {
-		if isUniqueViolation(err) {
+		switch uniqueViolationConstraint(err) {
+		case "api_key_key_idx":
 			return nil, huma.Error409Conflict("key already exists")
+		case "api_key_account_id_name_key":
+			return nil, huma.Error409Conflict("name already in use")
+		}
+		if isUniqueViolation(err) {
+			return nil, huma.Error409Conflict("api key conflicts with an existing row")
 		}
 		return nil, huma.Error500InternalServerError("failed to create api key", err)
 	}
@@ -91,6 +110,20 @@ func (s *Server) handleCreateApiKey(ctx context.Context, in *contract.CreateApiK
 func (s *Server) handleUpdateApiKey(ctx context.Context, in *contract.UpdateApiKeyRequest) (*contract.UpdateApiKeyResponse, error) {
 	if in.Body.Key == "" {
 		return nil, huma.Error400BadRequest("key is required")
+	}
+	sess := auth.SessionFromContext(ctx)
+	if sess.Account.Role != "admin" {
+		// Non-admin: verify ownership before mutating; 404 to avoid leaking existence.
+		_, err := s.queries.GetApiKeyOwnedBy(ctx, db.GetApiKeyOwnedByParams{
+			ID:        in.ID,
+			AccountID: sess.Account.ID,
+		})
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return nil, huma.Error404NotFound("api key not found")
+			}
+			return nil, huma.Error500InternalServerError("failed to verify ownership", err)
+		}
 	}
 	annotations, err := marshalAnnotations(in.Body.Annotations)
 	if err != nil {
@@ -107,8 +140,14 @@ func (s *Server) handleUpdateApiKey(ctx context.Context, in *contract.UpdateApiK
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, huma.Error404NotFound("api key not found")
 		}
-		if isUniqueViolation(err) {
+		switch uniqueViolationConstraint(err) {
+		case "api_key_key_idx":
 			return nil, huma.Error409Conflict("key already exists")
+		case "api_key_account_id_name_key":
+			return nil, huma.Error409Conflict("name already in use")
+		}
+		if isUniqueViolation(err) {
+			return nil, huma.Error409Conflict("api key conflicts with an existing row")
 		}
 		return nil, huma.Error500InternalServerError("failed to update api key", err)
 	}
@@ -120,6 +159,20 @@ func (s *Server) handleUpdateApiKey(ctx context.Context, in *contract.UpdateApiK
 }
 
 func (s *Server) handleDeleteApiKey(ctx context.Context, in *contract.DeleteApiKeyRequest) (*struct{}, error) {
+	sess := auth.SessionFromContext(ctx)
+	if sess.Account.Role != "admin" {
+		// Non-admin: verify ownership before deleting; 404 to avoid leaking existence.
+		_, err := s.queries.GetApiKeyOwnedBy(ctx, db.GetApiKeyOwnedByParams{
+			ID:        in.Body.ID,
+			AccountID: sess.Account.ID,
+		})
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return nil, huma.Error404NotFound("api key not found")
+			}
+			return nil, huma.Error500InternalServerError("failed to verify ownership", err)
+		}
+	}
 	if err := s.queries.DeleteApiKey(ctx, in.Body.ID); err != nil {
 		return nil, huma.Error500InternalServerError("failed to delete api key", err)
 	}

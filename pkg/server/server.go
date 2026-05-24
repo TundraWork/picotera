@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"picotera/db/migrations"
 	"picotera/pkg/artifacts"
+	"picotera/pkg/auth"
 	"picotera/pkg/configx"
 	"picotera/pkg/contract"
 	"picotera/pkg/db"
@@ -20,6 +21,7 @@ import (
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/danielgtaylor/huma/v2/adapters/humachi"
 	"github.com/go-chi/chi/v5"
+	"github.com/go-webauthn/webauthn/webauthn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/sirupsen/logrus"
 
@@ -28,6 +30,7 @@ import (
 
 type Server struct {
 	queries          *db.Queries
+	dbPool           *pgxpool.Pool
 	router           *chi.Mux
 	api              huma.API
 	config           *configx.Config
@@ -36,6 +39,10 @@ type Server struct {
 	artifacts        artifacts.Sink
 	jsxEngine        *jsx.Engine
 	kvStore          kv.Store
+	sessionStore     *auth.SessionStore
+	pairingStore     *auth.PairingStore
+	rateLimiter      *auth.RateLimiter
+	webauthn         *webauthn.WebAuthn
 	staticHandler    http.Handler
 	endpointRouter   *endpointRouter
 	projectRouter    *projectRouter
@@ -100,13 +107,25 @@ func NewServer(ctx context.Context) (*Server, error) {
 		sink, _ = artifacts.NewSink(configx.S3Config{}, logx.WithContext(ctx))
 	}
 
-	router := chi.NewMux()
-	api := humachi.New(router, huma.DefaultConfig("PicoTera Management API", "1.0.0"))
-
 	kvStore, err := kv.New(config.KV.Driver, kv.WithRedisURL(config.KV.RedisURL))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create kv store: %w", err)
 	}
+	sessionStore := auth.NewSessionStore(kvStore, config.SessionTTL)
+
+	wa, err := auth.NewWebAuthn(config)
+	if err != nil {
+		return nil, fmt.Errorf("init webauthn: %w", err)
+	}
+	logx.WithContext(ctx).WithFields(logrus.Fields{
+		"rp_id":   config.WebAuthnRPID,
+		"origins": config.PublicOrigins,
+	}).Info("auth ready")
+
+	router := chi.NewMux()
+	router.Use(auth.LoadSession(config, queries, sessionStore))
+	api := humachi.New(router, huma.DefaultConfig("PicoTera Management API", "1.0.0"))
+	registerSecurityScheme(api)
 
 	jsxEngine := jsx.NewEngine(jsx.Config{
 		HookTimeout:      config.JSHookTimeout,
@@ -140,6 +159,7 @@ func NewServer(ctx context.Context) (*Server, error) {
 	server := &Server{
 		config:           config,
 		queries:          queries,
+		dbPool:           conn,
 		router:           router,
 		api:              api,
 		httpClient:       httpClient,
@@ -147,6 +167,10 @@ func NewServer(ctx context.Context) (*Server, error) {
 		artifacts:        sink,
 		jsxEngine:        jsxEngine,
 		kvStore:          kvStore,
+		sessionStore:     sessionStore,
+		pairingStore:     auth.NewPairingStore(kvStore),
+		rateLimiter:      auth.NewRateLimiter(),
+		webauthn:         wa,
 		staticHandler:    static.Handler(),
 		endpointRouter:   newEndpointRouter(queries),
 		projectRouter:    projectRouter,
@@ -162,61 +186,184 @@ func NewServer(ctx context.Context) (*Server, error) {
 
 func NewHuma() huma.API {
 	router := chi.NewMux()
-	s := &Server{api: humachi.New(router, huma.DefaultConfig("PicoTera Management API", "1.0.0"))}
+	s := &Server{
+		router: router,
+		api:    humachi.New(router, huma.DefaultConfig("PicoTera Management API", "1.0.0")),
+	}
+	registerSecurityScheme(s.api)
 	s.registerOperations()
 	return s.api
 }
 
+// registerSecurityScheme declares the cookie-based session scheme on the
+// OpenAPI document. registerOp attaches a `picoteraSession: []` requirement
+// to every non-public operation, which references this scheme by name.
+func registerSecurityScheme(api huma.API) {
+	doc := api.OpenAPI()
+	if doc.Components == nil {
+		doc.Components = &huma.Components{}
+	}
+	if doc.Components.SecuritySchemes == nil {
+		doc.Components.SecuritySchemes = map[string]*huma.SecurityScheme{}
+	}
+	doc.Components.SecuritySchemes["picoteraSession"] = &huma.SecurityScheme{
+		Type: "apiKey",
+		In:   "cookie",
+		Name: auth.SessionCookieName,
+	}
+}
+
 func (s *Server) registerOperations() {
 	mgmt := huma.NewGroup(s.api, "/api/picotera")
-	huma.Register(mgmt, contract.OperationListProviders, s.handleListProviders)
-	huma.Register(mgmt, contract.OperationGetProvider, s.handleGetProvider)
-	huma.Register(mgmt, contract.OperationCreateProvider, s.handleCreateProvider)
-	huma.Register(mgmt, contract.OperationUpsertProvider, s.handleUpsertProvider)
-	huma.Register(mgmt, contract.OperationUpdateProviderModels, s.handleUpdateProviderModels)
-	huma.Register(mgmt, contract.OperationDeleteProvider, s.handleDeleteProvider)
-	huma.Register(mgmt, contract.OperationListModels, s.handleListModels)
-	huma.Register(mgmt, contract.OperationGetModel, s.handleGetModel)
-	huma.Register(mgmt, contract.OperationPutModel, s.handlePutModel)
-	huma.Register(mgmt, contract.OperationDeleteModel, s.handleDeleteModel)
-	huma.Register(mgmt, contract.OperationListEndpoints, s.handleListEndpoints)
-	huma.Register(mgmt, contract.OperationUpsertEndpoint, s.handleUpsertEndpoint)
-	huma.Register(mgmt, contract.OperationDeleteEndpoint, s.handleDeleteEndpoint)
-	huma.Register(mgmt, contract.OperationListProviderEndpoints, s.handleListProviderEndpoints)
-	huma.Register(mgmt, contract.OperationUpsertProviderEndpoint, s.handleUpsertProviderEndpoint)
-	huma.Register(mgmt, contract.OperationDeleteProviderEndpoint, s.handleDeleteProviderEndpoint)
-	huma.Register(mgmt, contract.OperationFetchModels, s.handleFetchModels)
-	huma.Register(mgmt, contract.OperationListRequests, s.handleListRequests)
-	huma.Register(mgmt, contract.OperationListRequestTraces, s.handleListRequestTraces)
-	huma.Register(mgmt, contract.OperationGetRequest, s.handleGetRequest)
-	huma.Register(mgmt, contract.OperationListRequestSpans, s.handleListRequestSpans)
-	huma.Register(mgmt, contract.OperationListExchangeRates, s.handleListExchangeRates)
-	huma.Register(mgmt, contract.OperationGetExchangeRate, s.handleGetExchangeRate)
-	huma.Register(mgmt, contract.OperationPutExchangeRate, s.handlePutExchangeRate)
-	huma.Register(mgmt, contract.OperationDeleteExchangeRate, s.handleDeleteExchangeRate)
-	huma.Register(mgmt, contract.OperationMatchPricing, s.handleMatchPricing)
-	huma.Register(mgmt, contract.OperationListApiKeys, s.handleListApiKeys)
-	huma.Register(mgmt, contract.OperationGetApiKey, s.handleGetApiKey)
-	huma.Register(mgmt, contract.OperationCreateApiKey, s.handleCreateApiKey)
-	huma.Register(mgmt, contract.OperationUpdateApiKey, s.handleUpdateApiKey)
-	huma.Register(mgmt, contract.OperationDeleteApiKey, s.handleDeleteApiKey)
-	huma.Register(mgmt, contract.OperationGetOverviewSummary, s.handleGetOverviewSummary)
-	huma.Register(mgmt, contract.OperationGetOverviewDistribution, s.handleGetOverviewDistribution)
-	huma.Register(mgmt, contract.OperationGetOverviewSeries, s.handleGetOverviewSeries)
-	huma.Register(mgmt, contract.OperationListProjects, s.handleListProjects)
-	huma.Register(mgmt, contract.OperationGetProject, s.handleGetProject)
-	huma.Register(mgmt, contract.OperationUpsertProject, s.handleUpsertProject)
-	huma.Register(mgmt, contract.OperationDeleteProject, s.handleDeleteProject)
-	huma.Register(mgmt, contract.OperationListScripts, s.handleListScripts)
-	huma.Register(mgmt, contract.OperationGetScript, s.handleGetScript)
-	huma.Register(mgmt, contract.OperationCreateScript, s.handleCreateScript)
-	huma.Register(mgmt, contract.OperationUpdateScript, s.handleUpdateScript)
-	huma.Register(mgmt, contract.OperationDeleteScript, s.handleDeleteScript)
-	huma.Register(mgmt, contract.OperationSimulateDispatch, s.handleSimulateDispatch)
-	huma.Register(mgmt, contract.OperationListKvEntries, s.handleListKvEntries)
-	huma.Register(mgmt, contract.OperationGetKvEntry, s.handleGetKvEntry)
-	huma.Register(mgmt, contract.OperationUpsertKvEntry, s.handleUpsertKvEntry)
-	huma.Register(mgmt, contract.OperationDeleteKvEntry, s.handleDeleteKvEntry)
+
+	var admin = contract.AuthRequirement{Kind: contract.AuthAdmin}
+
+	// Auth — public (status/login) or any session (logout)
+	registerOp(mgmt, contract.OperationAuthStatus, s.handleAuthStatus,
+		contract.AuthRequirement{Kind: contract.AuthPublic})
+	registerOpHTTP(s.router, "POST", "/api/picotera/auth/login/begin",
+		contract.AuthRequirement{Kind: contract.AuthPublic}, s.handleLoginBeginHTTP)
+	registerOpHTTP(s.router, "POST", "/api/picotera/auth/login/complete",
+		contract.AuthRequirement{Kind: contract.AuthPublic}, s.handleLoginCompleteHTTP)
+	registerOpHTTP(s.router, "POST", "/api/picotera/auth/logout",
+		contract.AuthRequirement{Kind: contract.AuthPublic}, s.handleLogoutHTTP)
+
+	// Enrollment
+	registerOp(mgmt, contract.OperationPreviewEnrollment, s.handlePreviewEnrollment,
+		contract.AuthRequirement{Kind: contract.AuthPublic})
+	registerOpHTTP(s.router, "POST", "/api/picotera/enrollments/{token}/register/begin",
+		contract.AuthRequirement{Kind: contract.AuthPublic}, s.handleEnrollmentBeginHTTP)
+	registerOpHTTP(s.router, "POST", "/api/picotera/enrollments/{token}/register/complete",
+		contract.AuthRequirement{Kind: contract.AuthPublic}, s.handleEnrollmentCompleteHTTP)
+
+	// Me — session-gated self-management
+	sessionReq := contract.AuthRequirement{Kind: contract.AuthSession}
+	registerOp(mgmt, contract.OperationGetMe, s.handleGetMe, sessionReq)
+	registerOp(mgmt, contract.OperationListMyCredentials, s.handleListMyCredentials, sessionReq)
+	registerOp(mgmt, contract.OperationDeleteMyCredential, s.handleDeleteMyCredential, sessionReq)
+	registerOp(mgmt, contract.OperationRenameMyCredential, s.handleRenameMyCredential, sessionReq)
+	registerOpHTTP(s.router, "POST", "/api/picotera/me/credentials/register/begin",
+		sessionReq, s.handleAddCredentialBeginHTTP)
+	registerOpHTTP(s.router, "POST", "/api/picotera/me/credentials/register/complete",
+		sessionReq, s.handleAddCredentialCompleteHTTP)
+	registerOp(mgmt, contract.OperationListMySessions, s.handleListMySessions, sessionReq)
+	registerOp(mgmt, contract.OperationRevokeMySession, s.handleRevokeMySession, sessionReq)
+
+	// Sudo: re-prove possession of the account's passkey to elevate the
+	// session for one sensitive action. Gates /me/devices/pair/approve.
+	registerOpHTTP(s.router, "POST", "/api/picotera/me/sudo/begin",
+		sessionReq, s.handleSudoBeginHTTP)
+	registerOpHTTP(s.router, "POST", "/api/picotera/me/sudo/complete",
+		sessionReq, s.handleSudoCompleteHTTP)
+
+	// Device pairing — short-code flow for adding a passkey on a device
+	// that has no existing credential. Anonymous endpoints are gated by
+	// the pairing object itself (code is bound to the originating session;
+	// approval requires an authenticated /me side).
+	publicReq := contract.AuthRequirement{Kind: contract.AuthPublic}
+	registerOpHTTP(s.router, "POST", "/api/picotera/auth/devices/pair/begin",
+		publicReq, s.handlePairBeginHTTP)
+	registerOpHTTP(s.router, "GET", "/api/picotera/auth/devices/pair/status",
+		publicReq, s.handlePairStatusHTTP)
+	registerOpHTTP(s.router, "POST", "/api/picotera/auth/devices/pair/complete",
+		publicReq, s.handlePairCompleteHTTP)
+	registerOpHTTP(s.router, "GET", "/api/picotera/me/devices/pair/lookup",
+		sessionReq, s.handlePairLookupHTTP)
+	registerOpHTTP(s.router, "POST", "/api/picotera/me/devices/pair/approve",
+		sessionReq, s.handlePairApproveHTTP)
+	registerOpHTTP(s.router, "POST", "/api/picotera/me/devices/pair/cancel",
+		sessionReq, s.handlePairCancelHTTP)
+
+	// Providers — all admin
+	registerOp(mgmt, contract.OperationListProviders, s.handleListProviders, admin)
+	registerOp(mgmt, contract.OperationGetProvider, s.handleGetProvider, admin)
+	registerOp(mgmt, contract.OperationCreateProvider, s.handleCreateProvider, admin)
+	registerOp(mgmt, contract.OperationUpsertProvider, s.handleUpsertProvider, admin)
+	registerOp(mgmt, contract.OperationUpdateProviderModels, s.handleUpdateProviderModels, admin)
+	registerOp(mgmt, contract.OperationDeleteProvider, s.handleDeleteProvider, admin)
+
+	// Models — reads gated by view_models, writes admin
+	registerOp(mgmt, contract.OperationListModels, s.handleListModels, contract.RequirePermission(contract.PermViewModels))
+	registerOp(mgmt, contract.OperationGetModel, s.handleGetModel, contract.RequirePermission(contract.PermViewModels))
+	registerOp(mgmt, contract.OperationPutModel, s.handlePutModel, admin)
+	registerOp(mgmt, contract.OperationDeleteModel, s.handleDeleteModel, admin)
+
+	// Endpoints — reads gated by view_models, writes admin
+	registerOp(mgmt, contract.OperationListEndpoints, s.handleListEndpoints, contract.RequirePermission(contract.PermViewModels))
+	registerOp(mgmt, contract.OperationUpsertEndpoint, s.handleUpsertEndpoint, admin)
+	registerOp(mgmt, contract.OperationDeleteEndpoint, s.handleDeleteEndpoint, admin)
+
+	// ProviderEndpoints — all admin (configuration surface)
+	registerOp(mgmt, contract.OperationListProviderEndpoints, s.handleListProviderEndpoints, admin)
+	registerOp(mgmt, contract.OperationUpsertProviderEndpoint, s.handleUpsertProviderEndpoint, admin)
+	registerOp(mgmt, contract.OperationDeleteProviderEndpoint, s.handleDeleteProviderEndpoint, admin)
+
+	// Fetch models — admin
+	registerOp(mgmt, contract.OperationFetchModels, s.handleFetchModels, admin)
+
+	// Requests
+	registerOp(mgmt, contract.OperationListRequests, s.handleListRequests, contract.RequirePermission(contract.PermViewOwnUsage))
+	registerOp(mgmt, contract.OperationListRequestTraces, s.handleListRequestTraces, contract.RequirePermission(contract.PermViewOwnTraces))
+	registerOp(mgmt, contract.OperationGetRequest, s.handleGetRequest, contract.RequirePermission(contract.PermViewOwnUsage))
+	registerOp(mgmt, contract.OperationListRequestSpans, s.handleListRequestSpans, contract.RequirePermission(contract.PermViewOwnUsage))
+
+	// Exchange rates + pricing — admin
+	registerOp(mgmt, contract.OperationListExchangeRates, s.handleListExchangeRates, admin)
+	registerOp(mgmt, contract.OperationGetExchangeRate, s.handleGetExchangeRate, admin)
+	registerOp(mgmt, contract.OperationPutExchangeRate, s.handlePutExchangeRate, admin)
+	registerOp(mgmt, contract.OperationDeleteExchangeRate, s.handleDeleteExchangeRate, admin)
+	registerOp(mgmt, contract.OperationMatchPricing, s.handleMatchPricing, admin)
+
+	// API keys — permission-gated
+	registerOp(mgmt, contract.OperationListApiKeys, s.handleListApiKeys, contract.RequirePermission(contract.PermManageOwnAPIKeys))
+	registerOp(mgmt, contract.OperationGetApiKey, s.handleGetApiKey, contract.RequirePermission(contract.PermManageOwnAPIKeys))
+	registerOp(mgmt, contract.OperationCreateApiKey, s.handleCreateApiKey, contract.RequirePermission(contract.PermManageOwnAPIKeys))
+	registerOp(mgmt, contract.OperationUpdateApiKey, s.handleUpdateApiKey, contract.RequirePermission(contract.PermManageOwnAPIKeys))
+	registerOp(mgmt, contract.OperationDeleteApiKey, s.handleDeleteApiKey, contract.RequirePermission(contract.PermManageOwnAPIKeys))
+
+	// Overview metrics — admin-only. The aggregate queries hit the
+	// request_overview_hourly continuous aggregate which has no account_id
+	// dimension, so per-user scoping isn't available yet. Match the gate to
+	// what the handler enforces (it returned 403 to non-admins anyway).
+	registerOp(mgmt, contract.OperationGetOverviewSummary, s.handleGetOverviewSummary, admin)
+	registerOp(mgmt, contract.OperationGetOverviewDistribution, s.handleGetOverviewDistribution, admin)
+	registerOp(mgmt, contract.OperationGetOverviewSeries, s.handleGetOverviewSeries, admin)
+
+	// Projects — manage_own_projects (per-user ownership; admin auto-passes
+	// but still sees only their own rows because the handlers always scope
+	// to sess.Account.ID).
+	registerOp(mgmt, contract.OperationListProjects, s.handleListProjects, contract.RequirePermission(contract.PermManageOwnProjects))
+	registerOp(mgmt, contract.OperationGetProject, s.handleGetProject, contract.RequirePermission(contract.PermManageOwnProjects))
+	registerOp(mgmt, contract.OperationUpsertProject, s.handleUpsertProject, contract.RequirePermission(contract.PermManageOwnProjects))
+	registerOp(mgmt, contract.OperationDeleteProject, s.handleDeleteProject, contract.RequirePermission(contract.PermManageOwnProjects))
+
+	// Accounts — admin
+	registerOp(mgmt, contract.OperationListAccounts, s.handleListAccounts, admin)
+	registerOp(mgmt, contract.OperationGetAccount, s.handleGetAccount, admin)
+	registerOp(mgmt, contract.OperationUpdateAccount, s.handleUpdateAccount, admin)
+	registerOp(mgmt, contract.OperationDeleteAccount, s.handleDeleteAccount, admin)
+	registerOp(mgmt, contract.OperationDeleteAccountCredential, s.handleDeleteAccountCredential, admin)
+	registerOp(mgmt, contract.OperationRevokeAccountSessions, s.handleRevokeAccountSessions, admin)
+	registerOp(mgmt, contract.OperationReissueEnrollment, s.handleReissueEnrollment, admin)
+	registerOp(mgmt, contract.OperationCreateInvitation, s.handleCreateInvitation, admin)
+	registerOp(mgmt, contract.OperationListInvitations, s.handleListInvitations, admin)
+	registerOp(mgmt, contract.OperationRevokeInvitation, s.handleRevokeInvitation, admin)
+
+	// Scripts — admin
+	registerOp(mgmt, contract.OperationListScripts, s.handleListScripts, admin)
+	registerOp(mgmt, contract.OperationGetScript, s.handleGetScript, admin)
+	registerOp(mgmt, contract.OperationCreateScript, s.handleCreateScript, admin)
+	registerOp(mgmt, contract.OperationUpdateScript, s.handleUpdateScript, admin)
+	registerOp(mgmt, contract.OperationDeleteScript, s.handleDeleteScript, admin)
+
+	// Simulate — admin
+	registerOp(mgmt, contract.OperationSimulateDispatch, s.handleSimulateDispatch, admin)
+
+	// KV — admin
+	registerOp(mgmt, contract.OperationListKvEntries, s.handleListKvEntries, admin)
+	registerOp(mgmt, contract.OperationGetKvEntry, s.handleGetKvEntry, admin)
+	registerOp(mgmt, contract.OperationUpsertKvEntry, s.handleUpsertKvEntry, admin)
+	registerOp(mgmt, contract.OperationDeleteKvEntry, s.handleDeleteKvEntry, admin)
 }
 
 func (s *Server) registerEndpoints() {

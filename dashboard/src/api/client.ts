@@ -33,6 +33,11 @@ import {
   type RequestsFilters,
 } from '@/api/queryKeys'
 
+type SessionView = components['schemas']['SessionView']
+type AuthStatus = components['schemas']['AuthStatus']
+type CredentialView = components['schemas']['CredentialView']
+type EnrollmentPreview = components['schemas']['EnrollmentPreview']
+
 type ApiErrorShape = Partial<components['schemas']['PicoTeraError']>
 
 export class ApiRequestError extends Error {
@@ -423,4 +428,440 @@ export async function simulateDispatch(
   const { data, error } = await api.POST('/api/picotera/simulate/dispatch', { body })
   if (error) fail(error, '模拟调度失败')
   return data
+}
+
+// --- Auth ---
+
+export async function fetchAuthStatus(): Promise<AuthStatus> {
+  const { data, error } = await api.GET('/api/picotera/auth/status')
+  if (error) fail(error, '加载认证状态失败')
+  return data
+}
+
+export async function fetchMe(): Promise<SessionView> {
+  const { data, error } = await api.GET('/api/picotera/me')
+  if (error) fail(error, '加载会话失败')
+  return data
+}
+
+/**
+ * Call /auth/logout — a raw chi route that returns 204 (not registered in the
+ * OpenAPI spec). Use raw fetch so we don't need a typed path entry.
+ */
+export async function logout(): Promise<void> {
+  await fetch('/api/picotera/auth/logout', {
+    method: 'POST',
+    credentials: 'include',
+  })
+}
+
+// --- WebAuthn ceremony endpoints (server returns raw protocol JSON) ---
+
+/**
+ * Begin a passkey login ceremony. Returns the raw WebAuthn PublicKeyCredentialRequestOptions
+ * JSON from the server (not reflected in the OpenAPI spec).
+ */
+export async function beginLogin(): Promise<unknown> {
+  const res = await fetch('/api/picotera/auth/login/begin', {
+    method: 'POST',
+    credentials: 'include',
+  })
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}))
+    throw new ApiRequestError(body)
+  }
+  return res.json()
+}
+
+/**
+ * Complete a passkey login ceremony with the assertion from the browser.
+ */
+export async function completeLogin(body: unknown): Promise<SessionView> {
+  const res = await fetch('/api/picotera/auth/login/complete', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) {
+    const errBody = await res.json().catch(() => ({}))
+    throw new ApiRequestError(errBody)
+  }
+  return res.json() as Promise<SessionView>
+}
+
+// --- Sessions (own) ---
+
+export async function listMySessions(): Promise<components['schemas']['SessionListItem'][]> {
+  const { data, error } = await api.GET('/api/picotera/me/sessions')
+  if (error) fail(error, '加载会话列表失败')
+  return data ?? []
+}
+
+export async function revokeMySession(id: string): Promise<void> {
+  const { error } = await api.POST('/api/picotera/me/sessions/revoke', {
+    body: { id },
+  })
+  if (error) fail(error, '撤销会话失败')
+}
+
+// --- Sudo (re-auth for sensitive actions) ---
+
+export async function sudoBegin(): Promise<unknown> {
+  const res = await fetch('/api/picotera/me/sudo/begin', {
+    method: 'POST',
+    credentials: 'include',
+  })
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}))
+    throw new ApiRequestError(body)
+  }
+  return res.json()
+}
+
+export async function sudoComplete(assertion: unknown): Promise<void> {
+  const res = await fetch('/api/picotera/me/sudo/complete', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify(assertion),
+  })
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}))
+    throw new ApiRequestError(body)
+  }
+}
+
+// --- Device pairing (short-code) ---
+
+export interface PairBeginResponse {
+  pairingId: string
+  code: string
+  displayCode: string
+  expiresAt: string
+}
+
+export async function pairBegin(): Promise<PairBeginResponse> {
+  const res = await fetch('/api/picotera/auth/devices/pair/begin', {
+    method: 'POST',
+    credentials: 'include',
+  })
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}))
+    throw new ApiRequestError(body)
+  }
+  return res.json()
+}
+
+export interface PairStatusResponse {
+  status: 'pending' | 'approved' | 'consumed' | 'expired'
+  expiresAt?: string
+}
+
+export async function pairStatus(pairingId: string): Promise<PairStatusResponse> {
+  const res = await fetch(
+    `/api/picotera/auth/devices/pair/status?id=${encodeURIComponent(pairingId)}`,
+    { credentials: 'include' },
+  )
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}))
+    throw new ApiRequestError(body)
+  }
+  return res.json()
+}
+
+export async function pairComplete(
+  pairingId: string,
+): Promise<{ session: SessionView }> {
+  const res = await fetch('/api/picotera/auth/devices/pair/complete', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify({ pairingId }),
+  })
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}))
+    throw new ApiRequestError(body)
+  }
+  return res.json()
+}
+
+export interface PairLookupResponse {
+  pairingId: string
+  displayCode: string
+  initiatorUa: string
+  initiatorIp: string
+  createdAt: string
+  expiresAt: string
+  alreadyBound: boolean
+}
+
+export async function pairLookup(code: string): Promise<PairLookupResponse> {
+  const res = await fetch(
+    `/api/picotera/me/devices/pair/lookup?code=${encodeURIComponent(code)}`,
+    { credentials: 'include' },
+  )
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}))
+    throw new ApiRequestError(body)
+  }
+  return res.json()
+}
+
+export async function pairApprove(code: string): Promise<void> {
+  const res = await fetch('/api/picotera/me/devices/pair/approve', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify({ code }),
+  })
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}))
+    throw new ApiRequestError(body)
+  }
+}
+
+export async function pairCancel(code: string): Promise<void> {
+  const res = await fetch('/api/picotera/me/devices/pair/cancel', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify({ code }),
+  })
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}))
+    throw new ApiRequestError(body)
+  }
+}
+
+// --- Enrollment ---
+
+export async function fetchEnrollment(token: string): Promise<EnrollmentPreview> {
+  const { data, error } = await api.GET('/api/picotera/enrollments/{token}', {
+    params: { path: { token } },
+  })
+  if (error) fail(error, '加载邀请失败')
+  return data
+}
+
+/**
+ * Begin a WebAuthn registration ceremony for an enrollment token. Returns raw
+ * PublicKeyCredentialCreationOptions JSON (not in OpenAPI spec).
+ */
+export async function beginEnrollmentRegistration(
+  token: string,
+  body: { username?: string; displayName?: string; nickname?: string },
+): Promise<unknown> {
+  const res = await fetch(`/api/picotera/enrollments/${encodeURIComponent(token)}/register/begin`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) {
+    const errBody = await res.json().catch(() => ({}))
+    throw new ApiRequestError(errBody)
+  }
+  return res.json()
+}
+
+/**
+ * Complete a WebAuthn registration ceremony for an enrollment token.
+ */
+export async function completeEnrollmentRegistration(
+  token: string,
+  attestation: unknown,
+): Promise<{ session: SessionView; newCredentialId: number }> {
+  const res = await fetch(
+    `/api/picotera/enrollments/${encodeURIComponent(token)}/register/complete`,
+    {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify(attestation),
+    },
+  )
+  if (!res.ok) {
+    const errBody = await res.json().catch(() => ({}))
+    throw new ApiRequestError(errBody)
+  }
+  return res.json() as Promise<{ session: SessionView; newCredentialId: number }>
+}
+
+// --- /me/credentials ---
+
+export async function fetchMyCredentials(): Promise<CredentialView[]> {
+  const { data, error } = await api.GET('/api/picotera/me/credentials')
+  if (error) fail(error, '加载凭证失败')
+  return data ?? []
+}
+
+/**
+ * Begin a WebAuthn registration ceremony to add a new credential. Returns raw
+ * PublicKeyCredentialCreationOptions JSON (not in OpenAPI spec).
+ */
+export async function addCredentialBegin(): Promise<unknown> {
+  const res = await fetch('/api/picotera/me/credentials/register/begin', {
+    method: 'POST',
+    credentials: 'include',
+  })
+  if (!res.ok) {
+    const errBody = await res.json().catch(() => ({}))
+    throw new ApiRequestError(errBody)
+  }
+  return res.json()
+}
+
+/**
+ * Complete a WebAuthn registration ceremony to add a new credential.
+ * The optional nickname is passed as a query parameter.
+ */
+export async function addCredentialComplete(
+  attestation: unknown,
+  nickname?: string,
+): Promise<CredentialView> {
+  const url =
+    nickname && nickname.length > 0
+      ? `/api/picotera/me/credentials/register/complete?nickname=${encodeURIComponent(nickname)}`
+      : `/api/picotera/me/credentials/register/complete`
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify(attestation),
+  })
+  if (!res.ok) {
+    const errBody = await res.json().catch(() => ({}))
+    throw new ApiRequestError(errBody)
+  }
+  return res.json() as Promise<CredentialView>
+}
+
+export async function renameMyCredential(id: number, nickname: string | null): Promise<void> {
+  const { error } = await api.POST('/api/picotera/me/credentials/rename', {
+    // nickname null → omit field (server treats absent *string as nil → clears nickname)
+    body: { id, ...(nickname !== null ? { nickname } : {}) },
+  })
+  if (error) fail(error, '重命名失败')
+}
+
+export async function deleteMyCredential(id: number): Promise<void> {
+  const { error } = await api.POST('/api/picotera/me/credentials/delete', { body: { id } })
+  if (error) fail(error, '删除凭证失败')
+}
+
+// --- Accounts ---
+
+type AccountView = components['schemas']['AccountView']
+type Permissions = components['schemas']['Permissions']
+type InvitationResponse = components['schemas']['InvitationResponse']
+type EnrollmentURLResponse = components['schemas']['EnrollmentURLResponse']
+
+export async function listAccounts(): Promise<AccountView[]> {
+  const { data, error } = await api.GET('/api/picotera/accounts')
+  if (error) fail(error, '加载用户失败')
+  return data ?? []
+}
+
+export async function getAccount(id: number): Promise<AccountView> {
+  const { data, error } = await api.GET('/api/picotera/accounts/{id}', {
+    params: { path: { id } },
+  })
+  if (error) fail(error, '加载用户失败')
+  return data
+}
+
+export async function updateAccount(
+  id: number,
+  body: { displayName: string; role: string; permissions: Permissions; disabled: boolean },
+): Promise<AccountView> {
+  const { data, error } = await api.PUT('/api/picotera/accounts/{id}', {
+    params: { path: { id } },
+    body,
+  })
+  if (error) fail(error, '保存用户失败')
+  return data
+}
+
+export async function deleteAccount(id: number): Promise<void> {
+  const { error } = await api.POST('/api/picotera/accounts/delete', { body: { id } })
+  if (error) fail(error, '删除用户失败')
+}
+
+export async function deleteAccountCredential(
+  accountId: number,
+  credentialId: number,
+): Promise<void> {
+  const { error } = await api.POST('/api/picotera/accounts/credentials/delete', {
+    body: { accountId, credentialId },
+  })
+  if (error) fail(error, '删除凭证失败')
+}
+
+export async function revokeAccountSessions(id: number): Promise<{ revoked: number }> {
+  const { data, error } = await api.POST('/api/picotera/accounts/revoke-sessions', {
+    body: { id },
+  })
+  if (error) fail(error, '吊销会话失败')
+  return data
+}
+
+export async function reissueEnrollment(id: number): Promise<EnrollmentURLResponse> {
+  const { data, error } = await api.POST('/api/picotera/accounts/reissue-enrollment', {
+    body: { id },
+  })
+  if (error) fail(error, '重新发送邀请失败')
+  return data
+}
+
+export async function createInvitation(body: {
+  role: string
+  permissions: Permissions
+}): Promise<InvitationResponse> {
+  const { data, error } = await api.POST('/api/picotera/invitations', { body })
+  if (error) fail(error, '创建邀请失败')
+  return data
+}
+
+// --- Invitations ---
+
+type InvitationView = components['schemas']['InvitationView']
+
+export async function listInvitations(): Promise<InvitationView[]> {
+  const { data, error } = await api.GET('/api/picotera/invitations')
+  if (error) fail(error, '加载邀请失败')
+  return data ?? []
+}
+
+export async function revokeInvitation(token: string): Promise<void> {
+  const { error } = await api.POST('/api/picotera/invitations/revoke', {
+    body: { token },
+  })
+  if (error) fail(error, '撤销邀请失败')
+}
+
+// --- Invalidation helpers ---
+
+export function invalidateSession(client: QueryClient) {
+  client.invalidateQueries({ queryKey: queryKeys.session.all })
+}
+
+export function invalidateAuthStatus(client: QueryClient) {
+  client.invalidateQueries({ queryKey: queryKeys.authStatus.all })
+}
+
+export function invalidateOwnCredentials(client: QueryClient) {
+  client.invalidateQueries({ queryKey: queryKeys.credentials.mine })
+}
+
+export function invalidateAccounts(client: QueryClient) {
+  client.invalidateQueries({ queryKey: queryKeys.accounts.all })
+}
+
+export function invalidateEnrollment(client: QueryClient, token: string) {
+  client.invalidateQueries({ queryKey: queryKeys.enrollments.detail(token) })
+}
+
+export function invalidateInvitations(client: QueryClient) {
+  client.invalidateQueries({ queryKey: queryKeys.invitations.all })
 }
