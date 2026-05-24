@@ -41,6 +41,7 @@ type Server struct {
 	kvStore          kv.Store
 	sessionStore     *auth.SessionStore
 	pairingStore     *auth.PairingStore
+	rateLimiter      *auth.RateLimiter
 	webauthn         *webauthn.WebAuthn
 	staticHandler    http.Handler
 	endpointRouter   *endpointRouter
@@ -168,6 +169,7 @@ func NewServer(ctx context.Context) (*Server, error) {
 		kvStore:          kvStore,
 		sessionStore:     sessionStore,
 		pairingStore:     auth.NewPairingStore(kvStore),
+		rateLimiter:      auth.NewRateLimiter(),
 		webauthn:         wa,
 		staticHandler:    static.Handler(),
 		endpointRouter:   newEndpointRouter(queries),
@@ -244,6 +246,15 @@ func (s *Server) registerOperations() {
 		sessionReq, s.handleAddCredentialBeginHTTP)
 	registerOpHTTP(s.router, "POST", "/api/picotera/me/credentials/register/complete",
 		sessionReq, s.handleAddCredentialCompleteHTTP)
+	registerOp(mgmt, contract.OperationListMySessions, s.handleListMySessions, sessionReq)
+	registerOp(mgmt, contract.OperationRevokeMySession, s.handleRevokeMySession, sessionReq)
+
+	// Sudo: re-prove possession of the account's passkey to elevate the
+	// session for one sensitive action. Gates /me/devices/pair/approve.
+	registerOpHTTP(s.router, "POST", "/api/picotera/me/sudo/begin",
+		sessionReq, s.handleSudoBeginHTTP)
+	registerOpHTTP(s.router, "POST", "/api/picotera/me/sudo/complete",
+		sessionReq, s.handleSudoCompleteHTTP)
 
 	// Device pairing — short-code flow for adding a passkey on a device
 	// that has no existing credential. Anonymous endpoints are gated by

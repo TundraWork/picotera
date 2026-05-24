@@ -15,6 +15,7 @@ import { queryKeys } from '@/api/queryKeys'
 import { Button, IconButton, Input, Badge, DataCard, DataTable, Th, Td, Tr, StateText, Icon } from '@/ui'
 import AddPasskeyDialog from '@/components/AddPasskeyDialog.vue'
 import PairApproveDialog from '@/components/PairApproveDialog.vue'
+import SessionsCard from '@/components/SessionsCard.vue'
 import type { components } from '@/openapi-types'
 
 type CredentialView = components['schemas']['CredentialView']
@@ -168,6 +169,9 @@ function roleLabel(role: string): string {
           </ul>
         </div>
       </DataCard>
+
+      <!-- Active sessions card -->
+      <SessionsCard />
 
       <!-- Passkeys card -->
       <DataCard>

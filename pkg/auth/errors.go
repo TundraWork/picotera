@@ -184,6 +184,28 @@ func ErrPairingNotApproved() *AuthError {
 	return newErr(http.StatusPreconditionRequired, "pairing_not_approved", "配对尚未在已登录设备上批准")
 }
 
+// ErrRateLimited is returned when a per-IP or per-account bucket is full.
+// Status 429 lets clients (and proxies) treat it as a back-off signal; the
+// handler should also populate Retry-After when possible.
+func ErrRateLimited() *AuthError {
+	return newErr(http.StatusTooManyRequests, "rate_limited", "请求过于频繁，请稍后再试")
+}
+
+// ErrSudoRequired is returned when a sensitive action needs a fresh
+// WebAuthn assertion within the sudo window. Status 401 with a code the
+// dashboard can branch on to trigger the sudo flow + retry.
+func ErrSudoRequired() *AuthError {
+	return newErr(http.StatusUnauthorized, "sudo_required", "敏感操作需要重新验证 Passkey")
+}
+
+func ErrSessionNotFound() *AuthError {
+	return newErr(http.StatusNotFound, "session_not_found", "会话不存在或已过期")
+}
+
+func ErrCannotRevokeCurrentSession() *AuthError {
+	return newErr(http.StatusConflict, "cannot_revoke_current_session", "无法从此处撤销当前会话，请使用「退出登录」")
+}
+
 // AsAuthError unwraps an error chain and returns the embedded *AuthError if any,
 // or nil otherwise. Useful for handler error mapping.
 func AsAuthError(err error) *AuthError {

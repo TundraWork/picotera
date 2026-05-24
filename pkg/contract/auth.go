@@ -78,6 +78,18 @@ type AccountView struct {
 	LastSignInAt *time.Time  `json:"lastSignInAt,omitempty"`
 }
 
+// SessionListItem is a single row in /me/sessions. Token is intentionally
+// not exposed — id is an opaque, non-secret handle generated at session
+// issuance, safe to round-trip from /me/sessions/revoke.
+type SessionListItem struct {
+	ID         string    `json:"id"`
+	IsCurrent  bool      `json:"isCurrent"`
+	IssuedAt   time.Time `json:"issuedAt"`
+	ExpiresAt  time.Time `json:"expiresAt"`
+	LastSeenIP string    `json:"lastSeenIp"`
+	UserAgent  string    `json:"userAgent,omitempty"`
+}
+
 // CredentialView is shown on /me and on admin views of a specific account.
 // CredentialIDSuffix is the last 4 chars of base64url(credential_id), for forensic
 // display only; the full credential ID is never returned in API responses.
@@ -201,6 +213,20 @@ var OperationRenameMyCredential = huma.Operation{
 	Method:      http.MethodPost,
 	Path:        "/me/credentials/rename",
 	Summary:     "Rename one of the caller's own passkeys.",
+}
+
+var OperationListMySessions = huma.Operation{
+	OperationID: "listMySessions",
+	Method:      http.MethodGet,
+	Path:        "/me/sessions",
+	Summary:     "List the caller's active sessions across devices.",
+}
+
+var OperationRevokeMySession = huma.Operation{
+	OperationID: "revokeMySession",
+	Method:      http.MethodPost,
+	Path:        "/me/sessions/revoke",
+	Summary:     "Revoke one of the caller's sessions by id; cannot target the current session.",
 }
 
 var OperationPreviewEnrollment = huma.Operation{

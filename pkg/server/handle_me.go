@@ -202,12 +202,80 @@ func (s *Server) handleAddCredentialCompleteHTTP(w http.ResponseWriter, r *http.
 	_ = s.kvStore.Del(r.Context(), "webauthn_ceremony:add:"+sess.Token)
 
 	logx.WithContext(r.Context()).WithFields(logrus.Fields{
-		"event":      "auth.credential_added",
-		"account_id": sess.Account.ID,
+		"event":         "auth.credential_added",
+		"account_id":    sess.Account.ID,
+		"credential_id": row.ID,
+		"client_ip":     auth.ClientIP(r, s.config.TrustProxy),
 	}).Info("auth")
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(credentialView(&row))
+}
+
+// ----- GET /me/sessions --------------------------------------------------
+
+type listMySessionsOut struct {
+	Body []contract.SessionListItem
+}
+
+func (s *Server) handleListMySessions(ctx context.Context, _ *struct{}) (*listMySessionsOut, error) {
+	sess := auth.SessionFromContext(ctx)
+	if sess == nil {
+		return nil, authErrToHuma(auth.ErrNoSession())
+	}
+	records, err := s.sessionStore.ListByAccount(ctx, sess.Account.ID)
+	if err != nil {
+		return nil, fmt.Errorf("handleListMySessions: %w", err)
+	}
+	items := make([]contract.SessionListItem, 0, len(records))
+	for _, r := range records {
+		items = append(items, contract.SessionListItem{
+			ID:         r.Data.SessionID,
+			IsCurrent:  r.Token == sess.Token,
+			IssuedAt:   r.Data.IssuedAt,
+			ExpiresAt:  r.Data.ExpiresAt,
+			LastSeenIP: r.Data.LastSeenIP,
+			UserAgent:  r.Data.UserAgent,
+		})
+	}
+	return &listMySessionsOut{Body: items}, nil
+}
+
+// ----- POST /me/sessions/revoke -----------------------------------------
+
+type revokeMySessionIn struct {
+	Body struct {
+		ID string `json:"id"`
+	}
+}
+
+func (s *Server) handleRevokeMySession(ctx context.Context, in *revokeMySessionIn) (*struct{}, error) {
+	sess := auth.SessionFromContext(ctx)
+	if sess == nil {
+		return nil, authErrToHuma(auth.ErrNoSession())
+	}
+	if in.Body.ID == "" {
+		return nil, authErrToHuma(auth.ErrSessionNotFound())
+	}
+	// Refuse to revoke the current session via this endpoint — the standard
+	// /auth/logout path handles that cleanly (clears the cookie too). This
+	// also prevents an accidental self-lock.
+	if sess.Data != nil && sess.Data.SessionID == in.Body.ID {
+		return nil, authErrToHuma(auth.ErrCannotRevokeCurrentSession())
+	}
+	ok, err := s.sessionStore.RevokeBySessionID(ctx, sess.Account.ID, in.Body.ID)
+	if err != nil {
+		return nil, fmt.Errorf("handleRevokeMySession: %w", err)
+	}
+	if !ok {
+		return nil, authErrToHuma(auth.ErrSessionNotFound())
+	}
+	logx.WithContext(ctx).WithFields(logrus.Fields{
+		"event":         "auth.session_revoked_self",
+		"account_id":    sess.Account.ID,
+		"target_session": in.Body.ID,
+	}).Info("auth")
+	return &struct{}{}, nil
 }
 
 // nicknameParamPtr converts a *string (nil or already-normalized) to a

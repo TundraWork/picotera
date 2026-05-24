@@ -91,6 +91,12 @@ func (s *Server) handleAuthStatus(ctx context.Context, _ *struct{}) (*authStatus
 // ----- POST /auth/login/begin (raw chi) ------------------------------------
 
 func (s *Server) handleLoginBeginHTTP(w http.ResponseWriter, r *http.Request) {
+	// 30 login ceremonies per IP per minute. Humans typing on a passkey
+	// authenticator can't realistically exceed this; bots tripping it get
+	// 429s with Retry-After.
+	if s.rateLimit(w, r, "login:ip:"+auth.ClientIP(r, s.config.TrustProxy), 30, time.Minute) {
+		return
+	}
 	bootstrapped, err := s.queries.HasAnyActiveAdmin(r.Context())
 	if err != nil {
 		writeAuthErr(w, fmt.Errorf("login/begin: %w", err))
@@ -130,6 +136,9 @@ func (s *Server) handleLoginBeginHTTP(w http.ResponseWriter, r *http.Request) {
 // ----- POST /auth/login/complete (raw chi) ---------------------------------
 
 func (s *Server) handleLoginCompleteHTTP(w http.ResponseWriter, r *http.Request) {
+	if s.rateLimit(w, r, "login:ip:"+auth.ClientIP(r, s.config.TrustProxy), 30, time.Minute) {
+		return
+	}
 	cer, err := r.Cookie(auth.CeremonyCookieName)
 	if err != nil || cer.Value == "" {
 		writeAuthErr(w, auth.ErrCeremonyMissing())
@@ -217,7 +226,7 @@ func (s *Server) handleLoginCompleteHTTP(w http.ResponseWriter, r *http.Request)
 	http.SetCookie(w, auth.ClearedCeremonyCookie(s.config, r))
 
 	ip := auth.ClientIP(r, s.config.TrustProxy)
-	token, _, err := s.sessionStore.Issue(r.Context(), resolvedAccount.ID, ip)
+	token, _, err := s.sessionStore.Issue(r.Context(), resolvedAccount.ID, ip, r.UserAgent())
 	if err != nil {
 		writeAuthErr(w, fmt.Errorf("session issue: %w", err))
 		return

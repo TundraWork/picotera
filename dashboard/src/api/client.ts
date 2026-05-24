@@ -490,6 +490,48 @@ export async function completeLogin(body: unknown): Promise<SessionView> {
   return res.json() as Promise<SessionView>
 }
 
+// --- Sessions (own) ---
+
+export async function listMySessions(): Promise<components['schemas']['SessionListItem'][]> {
+  const { data, error } = await api.GET('/api/picotera/me/sessions')
+  if (error) fail(error, '加载会话列表失败')
+  return data ?? []
+}
+
+export async function revokeMySession(id: string): Promise<void> {
+  const { error } = await api.POST('/api/picotera/me/sessions/revoke', {
+    body: { id },
+  })
+  if (error) fail(error, '撤销会话失败')
+}
+
+// --- Sudo (re-auth for sensitive actions) ---
+
+export async function sudoBegin(): Promise<unknown> {
+  const res = await fetch('/api/picotera/me/sudo/begin', {
+    method: 'POST',
+    credentials: 'include',
+  })
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}))
+    throw new ApiRequestError(body)
+  }
+  return res.json()
+}
+
+export async function sudoComplete(assertion: unknown): Promise<void> {
+  const res = await fetch('/api/picotera/me/sudo/complete', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify(assertion),
+  })
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}))
+    throw new ApiRequestError(body)
+  }
+}
+
 // --- Device pairing (short-code) ---
 
 export interface PairBeginResponse {

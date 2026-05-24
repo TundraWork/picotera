@@ -114,6 +114,9 @@ export const queryKeys = {
     all: ['credentials'] as const,
     mine: ['credentials', 'mine'] as const,
   },
+  sessions: {
+    mine: ['sessions', 'mine'] as const,
+  },
   enrollments: {
     all: ['enrollments'] as const,
     detail: (token: string) => ['enrollments', 'detail', token] as const,

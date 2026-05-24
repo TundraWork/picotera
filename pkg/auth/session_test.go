@@ -17,7 +17,7 @@ func TestSession_IssueAndLoad(t *testing.T) {
 	s := newTestStore(t, time.Hour)
 	ctx := context.Background()
 
-	token, data, err := s.Issue(ctx, 42, "127.0.0.1")
+	token, data, err := s.Issue(ctx, 42, "127.0.0.1", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -28,7 +28,7 @@ func TestSession_IssueAndLoad(t *testing.T) {
 		t.Errorf("token length = %d, want 43", len(token))
 	}
 
-	loaded, refreshed, err := s.Load(ctx, 42, token, "127.0.0.1")
+	loaded, refreshed, err := s.Load(ctx, 42, token, "127.0.0.1", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -42,7 +42,7 @@ func TestSession_IssueAndLoad(t *testing.T) {
 
 func TestSession_LoadMissingReturnsNoSession(t *testing.T) {
 	s := newTestStore(t, time.Hour)
-	_, _, err := s.Load(context.Background(), 42, "bogus_token", "127.0.0.1")
+	_, _, err := s.Load(context.Background(), 42, "bogus_token", "127.0.0.1", "")
 	if err == nil {
 		t.Fatal("missing session should error")
 	}
@@ -55,8 +55,8 @@ func TestSession_LoadMissingReturnsNoSession(t *testing.T) {
 func TestSession_LoadWrongAccountReturnsNoSession(t *testing.T) {
 	s := newTestStore(t, time.Hour)
 	ctx := context.Background()
-	token, _, _ := s.Issue(ctx, 42, "")
-	_, _, err := s.Load(ctx, 99, token, "") // wrong account id
+	token, _, _ := s.Issue(ctx, 42, "", "")
+	_, _, err := s.Load(ctx, 99, token, "", "") // wrong account id
 	if err == nil {
 		t.Fatal("loading with wrong account id should fail")
 	}
@@ -68,11 +68,11 @@ func TestSession_LoadWrongAccountReturnsNoSession(t *testing.T) {
 func TestSession_Revoke(t *testing.T) {
 	s := newTestStore(t, time.Hour)
 	ctx := context.Background()
-	token, _, _ := s.Issue(ctx, 42, "")
+	token, _, _ := s.Issue(ctx, 42, "", "")
 	if err := s.Revoke(ctx, 42, token); err != nil {
 		t.Fatal(err)
 	}
-	_, _, err := s.Load(ctx, 42, token, "")
+	_, _, err := s.Load(ctx, 42, token, "", "")
 	if err == nil {
 		t.Error("revoked session should not load")
 	}
@@ -83,11 +83,11 @@ func TestSession_RevokeAllForAccount(t *testing.T) {
 	ctx := context.Background()
 	// 3 sessions for account 42, 1 for account 99
 	for i := 0; i < 3; i++ {
-		if _, _, err := s.Issue(ctx, 42, ""); err != nil {
+		if _, _, err := s.Issue(ctx, 42, "", ""); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if _, _, err := s.Issue(ctx, 99, ""); err != nil {
+	if _, _, err := s.Issue(ctx, 99, "", ""); err != nil {
 		t.Fatal(err)
 	}
 
@@ -113,9 +113,9 @@ func TestSession_RefreshTriggersInLastQuarter(t *testing.T) {
 	// 100ms TTL means refresh threshold = 25ms. Sleep 80ms => 20ms remaining => refresh fires.
 	s := NewSessionStore(kv.NewMemoryStore(), 100*time.Millisecond)
 	ctx := context.Background()
-	token, _, _ := s.Issue(ctx, 42, "")
+	token, _, _ := s.Issue(ctx, 42, "", "")
 	time.Sleep(80 * time.Millisecond)
-	_, refreshed, err := s.Load(ctx, 42, token, "192.168.1.1")
+	_, refreshed, err := s.Load(ctx, 42, token, "192.168.1.1", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -127,9 +127,9 @@ func TestSession_RefreshTriggersInLastQuarter(t *testing.T) {
 func TestSession_NoRefreshEarlyInLifetime(t *testing.T) {
 	s := NewSessionStore(kv.NewMemoryStore(), 1*time.Second)
 	ctx := context.Background()
-	token, _, _ := s.Issue(ctx, 42, "")
+	token, _, _ := s.Issue(ctx, 42, "", "")
 	// Load immediately — far from expiry, should not refresh.
-	_, refreshed, err := s.Load(ctx, 42, token, "")
+	_, refreshed, err := s.Load(ctx, 42, token, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -142,9 +142,9 @@ func TestSession_ExpiredEntryReturnsNoSession(t *testing.T) {
 	// Very short TTL — write, sleep past expiry, expect ErrNoSession.
 	s := NewSessionStore(kv.NewMemoryStore(), 20*time.Millisecond)
 	ctx := context.Background()
-	token, _, _ := s.Issue(ctx, 42, "")
+	token, _, _ := s.Issue(ctx, 42, "", "")
 	time.Sleep(40 * time.Millisecond)
-	_, _, err := s.Load(ctx, 42, token, "")
+	_, _, err := s.Load(ctx, 42, token, "", "")
 	if err == nil {
 		t.Fatal("expired session should error")
 	}

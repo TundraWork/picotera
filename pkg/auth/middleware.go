@@ -69,7 +69,7 @@ func LoadSession(cfg *configx.Config, q db.Querier, store *SessionStore) func(ht
 				return
 			}
 			ip := ClientIP(r, cfg.TrustProxy)
-			data, refreshed, err := store.Load(r.Context(), accountID, token, ip)
+			data, refreshed, err := store.Load(r.Context(), accountID, token, ip, r.UserAgent())
 			if err != nil {
 				// Invalid/expired session: clear the cookie, continue unauthenticated.
 				http.SetCookie(w, ClearedSessionCookie(cfg, r))

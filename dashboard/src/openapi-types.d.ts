@@ -436,6 +436,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/picotera/me/sessions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List the caller's active sessions across devices. */
+        get: operations["listMySessions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/picotera/me/sessions/revoke": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Revoke one of the caller's sessions by id; cannot target the current session. */
+        post: operations["revokeMySession"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/picotera/models": {
         parameters: {
             query?: never;
@@ -1629,6 +1663,15 @@ export interface components {
             readonly $schema?: string;
             token: string;
         };
+        RevokeMySessionInBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/schemas/RevokeMySessionInBody.json
+             */
+            readonly $schema?: string;
+            id: string;
+        };
         ScriptMutateBody: {
             /**
              * Format: uri
@@ -1653,6 +1696,16 @@ export interface components {
             name: string;
             source: string;
             updatedAt: string;
+        };
+        SessionListItem: {
+            /** Format: date-time */
+            expiresAt: string;
+            id: string;
+            isCurrent: boolean;
+            /** Format: date-time */
+            issuedAt: string;
+            lastSeenIp: string;
+            userAgent?: string;
         };
         SessionView: {
             /**
@@ -2810,6 +2863,66 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["RenameMyCredentialInBody"];
+            };
+        };
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PicoTeraError"];
+                };
+            };
+        };
+    };
+    listMySessions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionListItem"][] | null;
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PicoTeraError"];
+                };
+            };
+        };
+    };
+    revokeMySession: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RevokeMySessionInBody"];
             };
         };
         responses: {

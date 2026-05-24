@@ -1483,6 +1483,20 @@ components:
       required:
         - token
       type: object
+    RevokeMySessionInBody:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          example: https://example.com/schemas/RevokeMySessionInBody.json
+          format: uri
+          readOnly: true
+          type: string
+        id:
+          type: string
+      required:
+        - id
+      type: object
     ScriptMutateBody:
       additionalProperties: false
       properties:
@@ -1531,6 +1545,30 @@ components:
         - enabled
         - createdAt
         - updatedAt
+      type: object
+    SessionListItem:
+      additionalProperties: false
+      properties:
+        expiresAt:
+          format: date-time
+          type: string
+        id:
+          type: string
+        isCurrent:
+          type: boolean
+        issuedAt:
+          format: date-time
+          type: string
+        lastSeenIp:
+          type: string
+        userAgent:
+          type: string
+      required:
+        - id
+        - isCurrent
+        - issuedAt
+        - expiresAt
+        - lastSeenIp
       type: object
     SessionView:
       additionalProperties: false
@@ -2646,6 +2684,49 @@ paths:
       security:
         - picoteraSession: []
       summary: Rename one of the caller's own passkeys.
+  /api/picotera/me/sessions:
+    get:
+      operationId: listMySessions
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                items:
+                  $ref: "#/components/schemas/SessionListItem"
+                nullable: true
+                type: array
+          description: OK
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PicoTeraError"
+          description: Error
+      security:
+        - picoteraSession: []
+      summary: List the caller's active sessions across devices.
+  /api/picotera/me/sessions/revoke:
+    post:
+      operationId: revokeMySession
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RevokeMySessionInBody"
+        required: true
+      responses:
+        "204":
+          description: No Content
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PicoTeraError"
+          description: Error
+      security:
+        - picoteraSession: []
+      summary: Revoke one of the caller's sessions by id; cannot target the current session.
   /api/picotera/models:
     get:
       operationId: listModels

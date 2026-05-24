@@ -24,6 +24,7 @@ package server
 import (
 	"encoding/json"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -43,8 +44,13 @@ type pairBeginResp struct {
 }
 
 func (s *Server) handlePairBeginHTTP(w http.ResponseWriter, r *http.Request) {
-	ua := r.UserAgent()
 	ip := auth.ClientIP(r, s.config.TrustProxy)
+	// Anonymous endpoint; key only on IP. Cap at 10 pairings/min so a flood
+	// can't fill KV with junk entries.
+	if s.rateLimit(w, r, "pair_begin:ip:"+ip, 10, time.Minute) {
+		return
+	}
+	ua := r.UserAgent()
 	p, err := s.pairingStore.New(r.Context(), ua, ip)
 	if err != nil {
 		writeAuthErr(w, err)
@@ -141,7 +147,7 @@ func (s *Server) handlePairCompleteHTTP(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	ip := auth.ClientIP(r, s.config.TrustProxy)
-	sessionToken, _, err := s.sessionStore.Issue(r.Context(), acct.ID, ip)
+	sessionToken, _, err := s.sessionStore.Issue(r.Context(), acct.ID, ip, r.UserAgent())
 	if err != nil {
 		writeAuthErr(w, err)
 		return
@@ -178,6 +184,11 @@ func (s *Server) handlePairLookupHTTP(w http.ResponseWriter, r *http.Request) {
 	sess := auth.SessionFromContext(r.Context())
 	if sess == nil {
 		writeAuthErr(w, auth.ErrNoSession())
+		return
+	}
+	// Per-account cap on lookups — caps the brute-force surface against the
+	// code space even though entropy already makes it impractical.
+	if s.rateLimit(w, r, "pair_lookup:acct:"+strconv.Itoa(int(sess.Account.ID)), 20, time.Minute) {
 		return
 	}
 	code := r.URL.Query().Get("code")
@@ -217,6 +228,18 @@ func (s *Server) handlePairApproveHTTP(w http.ResponseWriter, r *http.Request) {
 	sess := auth.SessionFromContext(r.Context())
 	if sess == nil {
 		writeAuthErr(w, auth.ErrNoSession())
+		return
+	}
+	// Per-account approve cap, tighter than lookup. A legit user approves
+	// new devices rarely; high rates indicate a script or a hijacked session.
+	if s.rateLimit(w, r, "pair_approve:acct:"+strconv.Itoa(int(sess.Account.ID)), 10, time.Minute) {
+		return
+	}
+	// Approving a pairing permanently binds a new credential to the
+	// account, so it's gated by a fresh WebAuthn assertion. A stolen
+	// session cookie alone can't elevate past this — only possession of
+	// the user's authenticator + biometric.
+	if s.requireFreshSudo(r.Context(), w, sess) {
 		return
 	}
 	var body pairApproveReq

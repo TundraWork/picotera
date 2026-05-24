@@ -9,6 +9,7 @@ import {
   ApiRequestError,
   type PairLookupResponse,
 } from '@/api/client'
+import { runWithSudo, WebAuthnUserCancelled } from '@/composables/useSudo'
 
 const emit = defineEmits<{ close: [] }>()
 
@@ -42,10 +43,17 @@ async function onApprove() {
   phase.value = 'approving'
   error.value = ''
   try {
-    await pairApprove(code.value)
+    // The server requires a fresh WebAuthn assertion before binding a
+    // new credential. runWithSudo catches the sudo_required response,
+    // runs the assertion ceremony, and retries the approve.
+    await runWithSudo(() => pairApprove(code.value))
     phase.value = 'done'
   } catch (e: unknown) {
-    error.value = e instanceof ApiRequestError ? e.message : '批准失败'
+    if (e instanceof WebAuthnUserCancelled) {
+      error.value = '已取消验证，配对未批准。'
+    } else {
+      error.value = e instanceof ApiRequestError ? e.message : '批准失败'
+    }
     phase.value = 'confirm'
   }
 }
@@ -66,7 +74,7 @@ function fmtTime(iso?: string | null): string {
     <template v-if="phase === 'enter'">
       <div class="flex flex-col gap-4">
         <p class="text-sm text-ink-muted">
-          在新设备的登录页点击「无 Passkey 登录」→「有」，将显示的 8 位配对码输入下方。
+          在新设备打开登录页，点击「无 Passkey 登录」→「有」，在下方输入显示的 8 位配对码。
         </p>
         <Field label="配对码">
           <PairingCodeInput v-model="code" @enter="onLookup" />
@@ -81,7 +89,7 @@ function fmtTime(iso?: string | null): string {
           批准后该设备将以您的账户登录，并可注册新的 Passkey。如非本人发起请取消。
         </div>
         <div class="flex flex-col items-center gap-1 my-1">
-          <span class="text-xs text-ink-faint">请核对与新设备屏幕显示的 8 位配对码一致：</span>
+          <span class="text-xs text-ink-faint">请核对以下信息与要登录的新设备一致：</span>
           <PairingCode :code="lookup.displayCode" size="md" />
         </div>
         <div class="rounded-md border border-line bg-surface-100 px-4 py-3 flex flex-col gap-2">

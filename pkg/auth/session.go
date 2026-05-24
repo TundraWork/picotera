@@ -18,11 +18,23 @@ import (
 // NOT snapshot role or permissions — those are re-fetched from db.Account on
 // every authenticated request so admin actions (disable, role change,
 // permission edits) propagate to active sessions immediately.
+//
+// SessionID is an opaque, non-secret handle exposed in /me/sessions so users
+// can identify/revoke their other sessions without the response leaking the
+// underlying cookie token. It's generated at Issue time and stable across
+// refreshes.
 type SessionData struct {
+	SessionID  string    `json:"session_id"`
 	AccountID  int32     `json:"account_id"`
 	IssuedAt   time.Time `json:"issued_at"`
 	ExpiresAt  time.Time `json:"expires_at"`
 	LastSeenIP string    `json:"last_seen_ip"`
+	UserAgent  string    `json:"user_agent,omitempty"`
+	// SudoUntil is the deadline for the elevated "fresh WebAuthn assertion"
+	// state required by sensitive actions (currently /me/devices/pair/approve).
+	// Zero or past means no sudo; future means the gate is satisfied. Set by
+	// POST /me/sudo/complete and consumed inline by the gated handlers.
+	SudoUntil time.Time `json:"sudo_until,omitempty"`
 }
 
 // SessionStore issues, loads, and revokes sessions backed by pkg/kv.
@@ -48,11 +60,33 @@ func NewSessionStore(store kv.Store, ttl time.Duration) *SessionStore {
 // TTL returns the configured session lifetime (handler/middleware use it for cookie MaxAge).
 func (s *SessionStore) TTL() time.Duration { return s.ttl }
 
+// SudoTTL is the window during which sensitive actions accept the session's
+// current sudo grant. Short by design — sudo expires the moment the user
+// stops using it.
+const SudoTTL = 5 * time.Minute
+
+// HasFreshSudo returns true when the session's SudoUntil is in the future.
+func (d *SessionData) HasFreshSudo() bool {
+	return !d.SudoUntil.IsZero() && time.Now().Before(d.SudoUntil)
+}
+
 // newToken produces 32 random bytes encoded as URL-safe base64 (43 chars, no padding).
 func newToken() (string, error) {
 	b := make([]byte, 32)
 	if _, err := rand.Read(b); err != nil {
 		return "", fmt.Errorf("session: rand: %w", err)
+	}
+	return base64.RawURLEncoding.EncodeToString(b), nil
+}
+
+// newSessionID is a separate opaque id exposed in /me/sessions so listing
+// doesn't leak the secret cookie token. 16 bytes is plenty — collisions are
+// scoped per-account and would be cosmetic (the revoke endpoint scans by
+// account).
+func newSessionID() (string, error) {
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		return "", fmt.Errorf("session: rand id: %w", err)
 	}
 	return base64.RawURLEncoding.EncodeToString(b), nil
 }
@@ -63,17 +97,24 @@ func sessionKey(accountID int32, token string) string {
 
 // Issue writes a fresh session to KV and returns the random token plus the
 // SessionData that was stored. Caller constructs the cookie via CookieValue().
-func (s *SessionStore) Issue(ctx context.Context, accountID int32, ip string) (string, *SessionData, error) {
+// ua is captured into SessionData so /me/sessions can label each row.
+func (s *SessionStore) Issue(ctx context.Context, accountID int32, ip, ua string) (string, *SessionData, error) {
 	token, err := newToken()
+	if err != nil {
+		return "", nil, err
+	}
+	sessionID, err := newSessionID()
 	if err != nil {
 		return "", nil, err
 	}
 	now := time.Now()
 	data := &SessionData{
+		SessionID:  sessionID,
 		AccountID:  accountID,
 		IssuedAt:   now,
 		ExpiresAt:  now.Add(s.ttl),
 		LastSeenIP: ip,
+		UserAgent:  ua,
 	}
 	payload, err := json.Marshal(data)
 	if err != nil {
@@ -88,7 +129,7 @@ func (s *SessionStore) Issue(ctx context.Context, accountID int32, ip string) (s
 // Load returns the session data and a refreshed flag. The refreshed flag is
 // true when the TTL was extended on this Load — callers re-emit Set-Cookie
 // to update the browser's expiry. Returns ErrNoSession() on missing/expired.
-func (s *SessionStore) Load(ctx context.Context, accountID int32, token, ip string) (*SessionData, bool, error) {
+func (s *SessionStore) Load(ctx context.Context, accountID int32, token, ip, ua string) (*SessionData, bool, error) {
 	key := sessionKey(accountID, token)
 	raw, err := s.kv.Get(ctx, key)
 	if err != nil {
@@ -112,6 +153,9 @@ func (s *SessionStore) Load(ctx context.Context, accountID int32, token, ip stri
 	if data.ExpiresAt.Sub(now) < s.refresh {
 		data.ExpiresAt = now.Add(s.ttl)
 		data.LastSeenIP = ip
+		if ua != "" {
+			data.UserAgent = ua
+		}
 		payload, _ := json.Marshal(&data)
 		_ = s.kv.SetEx(ctx, key, string(payload), s.ttl)
 		refreshed = true
@@ -122,6 +166,81 @@ func (s *SessionStore) Load(ctx context.Context, accountID int32, token, ip stri
 // Revoke deletes a specific session.
 func (s *SessionStore) Revoke(ctx context.Context, accountID int32, token string) error {
 	return s.kv.Del(ctx, sessionKey(accountID, token))
+}
+
+// Save writes data back to the same KV entry, preserving the session's
+// remaining TTL. Used by the sudo grant handler to stamp SudoUntil onto an
+// already-issued session without disturbing its expiry.
+func (s *SessionStore) Save(ctx context.Context, accountID int32, token string, data *SessionData) error {
+	remaining := time.Until(data.ExpiresAt)
+	if remaining <= 0 {
+		return ErrNoSession()
+	}
+	payload, err := json.Marshal(data)
+	if err != nil {
+		return fmt.Errorf("session: marshal: %w", err)
+	}
+	if err := s.kv.SetEx(ctx, sessionKey(accountID, token), string(payload), remaining); err != nil {
+		return fmt.Errorf("session: setex: %w", err)
+	}
+	return nil
+}
+
+// ListByAccount returns every live session for accountID. Each entry is the
+// stored SessionData with its KV-suffix token attached (callers need it
+// only to compute is-current; the token MUST NOT be echoed to clients).
+type SessionRecord struct {
+	Token string // raw cookie-half; do not echo
+	Data  SessionData
+}
+
+func (s *SessionStore) ListByAccount(ctx context.Context, accountID int32) ([]SessionRecord, error) {
+	pattern := fmt.Sprintf("session:%d:*", accountID)
+	prefix := fmt.Sprintf("session:%d:", accountID)
+	var (
+		cursor uint64
+		out    []SessionRecord
+	)
+	for {
+		result, err := s.kv.ScanEntries(ctx, pattern, cursor, 100)
+		if err != nil {
+			return nil, fmt.Errorf("session: scan: %w", err)
+		}
+		for _, entry := range result.Entries {
+			var data SessionData
+			if err := json.Unmarshal([]byte(entry.Value), &data); err != nil {
+				continue
+			}
+			token := strings.TrimPrefix(entry.Key, prefix)
+			out = append(out, SessionRecord{Token: token, Data: data})
+		}
+		cursor = result.NextCursor
+		if cursor == 0 {
+			break
+		}
+	}
+	return out, nil
+}
+
+// RevokeBySessionID drops a single session belonging to accountID whose
+// SessionData.SessionID matches the given id. Returns true when a match
+// was found and deleted, false otherwise (e.g. unknown id, race with
+// expiry, wrong account). Refusing to surface "not yours" vs "not found"
+// distinctly here protects against probe attacks across accounts.
+func (s *SessionStore) RevokeBySessionID(ctx context.Context, accountID int32, sessionID string) (bool, error) {
+	sessions, err := s.ListByAccount(ctx, accountID)
+	if err != nil {
+		return false, err
+	}
+	for _, sr := range sessions {
+		if sr.Data.SessionID == sessionID {
+			if err := s.kv.Del(ctx, sessionKey(accountID, sr.Token)); err != nil {
+				return false, fmt.Errorf("session: del: %w", err)
+			}
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 // RevokeAllForAccount removes every session for the given account. Returns the

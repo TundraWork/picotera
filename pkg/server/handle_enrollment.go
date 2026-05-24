@@ -114,6 +114,11 @@ type resetCeremony struct {
 }
 
 func (s *Server) handleEnrollmentBeginHTTP(w http.ResponseWriter, r *http.Request) {
+	// Bound per-IP — caps brute-force on token guesses even though tokens
+	// are 256-bit random. Generous for legit consumes (one user, one flow).
+	if s.rateLimit(w, r, "enroll:ip:"+auth.ClientIP(r, s.config.TrustProxy), 20, time.Minute) {
+		return
+	}
 	token := chi.URLParam(r, "token")
 	e, err := auth.LoadEnrollment(r.Context(), s.queries, token)
 	if err != nil {
@@ -484,7 +489,7 @@ func (s *Server) handleEnrollmentCompleteHTTP(w http.ResponseWriter, r *http.Req
 
 	// Issue session for the (new or existing) account.
 	ip := auth.ClientIP(r, s.config.TrustProxy)
-	sessionToken, _, err := s.sessionStore.Issue(r.Context(), account.ID, ip)
+	sessionToken, _, err := s.sessionStore.Issue(r.Context(), account.ID, ip, r.UserAgent())
 	if err != nil {
 		writeAuthErr(w, fmt.Errorf("enrollment/complete: session issue: %w", err))
 		return
