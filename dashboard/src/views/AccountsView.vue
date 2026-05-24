@@ -328,8 +328,8 @@ function fmtTime(iso?: string | null): string {
                   <Icon :name="a.disabled ? 'eye-off' : 'eye'" :size="13" />
                 </IconButton>
                 <IconButton
-                  title="重新发送邀请"
-                  aria-label="重新发送邀请"
+                  title="获取恢复链接"
+                  aria-label="获取恢复链接"
                   :disabled="reissuingId === a.id"
                   @click="openReissue(a)"
                 >

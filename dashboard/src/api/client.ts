@@ -490,6 +490,110 @@ export async function completeLogin(body: unknown): Promise<SessionView> {
   return res.json() as Promise<SessionView>
 }
 
+// --- Device pairing (short-code) ---
+
+export interface PairBeginResponse {
+  pairingId: string
+  code: string
+  displayCode: string
+  expiresAt: string
+  publicKey: unknown
+}
+
+export async function pairBegin(): Promise<PairBeginResponse> {
+  const res = await fetch('/api/picotera/auth/devices/pair/begin', {
+    method: 'POST',
+    credentials: 'include',
+  })
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}))
+    throw new ApiRequestError(body)
+  }
+  return res.json()
+}
+
+export interface PairStatusResponse {
+  status: 'pending' | 'approved' | 'consumed' | 'expired'
+  expiresAt?: string
+}
+
+export async function pairStatus(pairingId: string): Promise<PairStatusResponse> {
+  const res = await fetch(
+    `/api/picotera/auth/devices/pair/status?id=${encodeURIComponent(pairingId)}`,
+    { credentials: 'include' },
+  )
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}))
+    throw new ApiRequestError(body)
+  }
+  return res.json()
+}
+
+export async function pairComplete(
+  pairingId: string,
+  attestation: unknown,
+  nickname?: string,
+): Promise<{ session: SessionView; newCredentialId: number }> {
+  const res = await fetch('/api/picotera/auth/devices/pair/complete', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify({ pairingId, attestation, nickname: nickname ?? '' }),
+  })
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}))
+    throw new ApiRequestError(body)
+  }
+  return res.json()
+}
+
+export interface PairLookupResponse {
+  pairingId: string
+  initiatorUa: string
+  initiatorIp: string
+  createdAt: string
+  expiresAt: string
+  alreadyBound: boolean
+}
+
+export async function pairLookup(code: string): Promise<PairLookupResponse> {
+  const res = await fetch(
+    `/api/picotera/me/devices/pair/lookup?code=${encodeURIComponent(code)}`,
+    { credentials: 'include' },
+  )
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}))
+    throw new ApiRequestError(body)
+  }
+  return res.json()
+}
+
+export async function pairApprove(code: string): Promise<void> {
+  const res = await fetch('/api/picotera/me/devices/pair/approve', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify({ code }),
+  })
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}))
+    throw new ApiRequestError(body)
+  }
+}
+
+export async function pairCancel(code: string): Promise<void> {
+  const res = await fetch('/api/picotera/me/devices/pair/cancel', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify({ code }),
+  })
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}))
+    throw new ApiRequestError(body)
+  }
+}
+
 // --- Enrollment ---
 
 export async function fetchEnrollment(token: string): Promise<EnrollmentPreview> {

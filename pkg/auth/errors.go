@@ -164,6 +164,26 @@ func ErrNotBootstrapped() *AuthError {
 	return newErr(http.StatusServiceUnavailable, "not_bootstrapped", "系统尚未初始化，请在服务器上运行 `picotera enroll-admin`")
 }
 
+// Pairing errors — same not-found / state policy as enrollment: collapse
+// "never existed", "expired", and "consumed" into one code so an attacker
+// can't probe code validity.
+
+func ErrPairingNotFound() *AuthError {
+	return newErr(http.StatusNotFound, "pairing_not_found", "配对码无效、已使用或已过期")
+}
+
+func ErrPairingState() *AuthError {
+	return newErr(http.StatusConflict, "pairing_state", "配对状态不允许此操作")
+}
+
+func ErrPairingExpired() *AuthError {
+	return newErr(http.StatusGone, "pairing_expired", "配对码已过期，请重新生成")
+}
+
+func ErrPairingNotApproved() *AuthError {
+	return newErr(http.StatusPreconditionRequired, "pairing_not_approved", "配对尚未在已登录设备上批准")
+}
+
 // AsAuthError unwraps an error chain and returns the embedded *AuthError if any,
 // or nil otherwise. Useful for handler error mapping.
 func AsAuthError(err error) *AuthError {

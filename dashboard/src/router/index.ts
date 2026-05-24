@@ -103,6 +103,18 @@ const router = createRouter({
       meta: { auth: { kind: 'public' }, layout: 'minimal' },
     },
     {
+      path: '/login/recover',
+      name: 'recoverChoice',
+      component: () => import('@/views/RecoverChoiceView.vue'),
+      meta: { auth: { kind: 'public' }, layout: 'minimal' },
+    },
+    {
+      path: '/login/code',
+      name: 'codeLogin',
+      component: () => import('@/views/CodeLoginView.vue'),
+      meta: { auth: { kind: 'public' }, layout: 'minimal' },
+    },
+    {
       path: '/enroll/:token',
       name: 'enroll',
       component: () => import('@/views/EnrollView.vue'),

@@ -19,9 +19,14 @@ const queryClient = useQueryClient()
 
 const isEdit = !!props.account
 
-const revealData = ref<{ url: string; expiresAt: string } | null>(
-  props.revealUrl && props.revealExpiresAt
-    ? { url: props.revealUrl, expiresAt: props.revealExpiresAt }
+// revealOrigin: 'recovery' when the panel was opened straight to a
+// reveal-once URL (admin clicked "获取恢复链接" on an existing user);
+// 'invite' when the panel created a fresh invitation (which is also
+// queryable from the pending-invitations list).
+const revealOrigin = props.revealUrl ? ('recovery' as const) : null
+const revealData = ref<{ url: string; expiresAt: string; origin: 'recovery' | 'invite' } | null>(
+  props.revealUrl && props.revealExpiresAt && revealOrigin
+    ? { url: props.revealUrl, expiresAt: props.revealExpiresAt, origin: revealOrigin }
     : null,
 )
 
@@ -91,12 +96,14 @@ const permLabels: Record<keyof Permissions, string> = {
 }
 
 const panelTitle = computed(() => {
+  if (revealData.value?.origin === 'recovery') return '恢复链接已生成'
   if (revealData.value) return '邀请已创建'
   if (isEdit) return props.account?.displayName || props.account?.username || '用户'
   return '邀请用户'
 })
 
 const panelKicker = computed(() => {
+  if (revealData.value?.origin === 'recovery') return '恢复链接'
   if (revealData.value) return '邀请链接'
   if (isEdit) return '编辑用户'
   return '用户'
@@ -135,7 +142,7 @@ async function submit() {
         permissions: form.value.permissions,
       })
       // Swap form to URL-display view on successful invite
-      revealData.value = { url: result.url, expiresAt: result.expiresAt }
+      revealData.value = { url: result.url, expiresAt: result.expiresAt, origin: 'invite' }
     }
   } catch (e: unknown) {
     error.value = e instanceof Error ? e.message : '操作失败'
@@ -166,14 +173,26 @@ function fmtTime(iso?: string | null): string {
 
 <template>
   <SidePanel :title="panelTitle" :kicker="panelKicker" @close="emit('close')">
-    <!-- URL-display view: shown after invite creation (URL queryable via listInvitations), or when revealUrl prop is provided (reissue; those are reveal-once) -->
+    <!-- URL-display view: shown after invite creation (queryable from
+         the pending-invitations list) or when revealUrl prop is provided
+         by the admin's "获取恢复链接" action (reveal-once). -->
     <div v-if="revealData" class="flex flex-col gap-4">
-      <p class="text-sm text-ink-muted">
-        把下面的链接发给被邀请人。链接也会出现在用户管理页的「待发送邀请」列表中，可以随时复制或撤销。
-      </p>
-      <p class="text-xs text-ink-faint">
-        受邀者注册成功后将出现在用户列表中。
-      </p>
+      <template v-if="revealData.origin === 'recovery'">
+        <p class="text-sm text-ink-muted">
+          把下面的链接发给已无可用 Passkey 的用户。链接只显示这一次。
+        </p>
+        <p class="text-xs text-ink-faint">
+          打开链接后该用户的旧 Passkey 将被全部删除，并允许注册新的 Passkey。
+        </p>
+      </template>
+      <template v-else>
+        <p class="text-sm text-ink-muted">
+          把下面的链接发给被邀请人。链接也会出现在用户管理页的「待发送邀请」列表中，可以随时复制或撤销。
+        </p>
+        <p class="text-xs text-ink-faint">
+          受邀者注册成功后将出现在用户列表中。
+        </p>
+      </template>
       <div class="flex items-stretch gap-2">
         <Input :model-value="revealData.url" readonly class="flex-1 font-mono text-xs" />
         <Button @click="copyUrl">

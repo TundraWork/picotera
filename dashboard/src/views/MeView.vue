@@ -14,6 +14,7 @@ import {
 import { queryKeys } from '@/api/queryKeys'
 import { Button, IconButton, Input, Badge, DataCard, DataTable, Th, Td, Tr, StateText, Icon } from '@/ui'
 import AddPasskeyDialog from '@/components/AddPasskeyDialog.vue'
+import PairApproveDialog from '@/components/PairApproveDialog.vue'
 import type { components } from '@/openapi-types'
 
 type CredentialView = components['schemas']['CredentialView']
@@ -32,6 +33,10 @@ const credentialsQuery = useQuery({
 
 function openAddDialog() {
   sidePanel.open(AddPasskeyDialog, {}, { key: 'add-passkey', width: '480px' })
+}
+
+function openAddDeviceDialog() {
+  sidePanel.open(PairApproveDialog, {}, { key: 'pair-approve', width: '480px' })
 }
 
 const deleteMutation = useMutation({
@@ -170,10 +175,16 @@ function roleLabel(role: string): string {
           <!-- Card header -->
           <div class="px-6 pt-6 pb-4 flex items-center justify-between gap-4">
             <h2 class="text-sm font-semibold text-ink">Passkey</h2>
-            <Button @click="openAddDialog">
-              <Icon name="plus" :size="14" :stroke-width="2.2" />
-              <span>添加 Passkey</span>
-            </Button>
+            <div class="flex items-center gap-2">
+              <Button variant="ghost" @click="openAddDeviceDialog">
+                <Icon name="plus" :size="14" :stroke-width="2.2" />
+                <span>添加新设备</span>
+              </Button>
+              <Button @click="openAddDialog">
+                <Icon name="plus" :size="14" :stroke-width="2.2" />
+                <span>添加 Passkey</span>
+              </Button>
+            </div>
           </div>
 
           <!-- Credentials table -->

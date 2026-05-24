@@ -40,6 +40,7 @@ type Server struct {
 	jsxEngine        *jsx.Engine
 	kvStore          kv.Store
 	sessionStore     *auth.SessionStore
+	pairingStore     *auth.PairingStore
 	webauthn         *webauthn.WebAuthn
 	staticHandler    http.Handler
 	endpointRouter   *endpointRouter
@@ -166,6 +167,7 @@ func NewServer(ctx context.Context) (*Server, error) {
 		jsxEngine:        jsxEngine,
 		kvStore:          kvStore,
 		sessionStore:     sessionStore,
+		pairingStore:     auth.NewPairingStore(kvStore),
 		webauthn:         wa,
 		staticHandler:    static.Handler(),
 		endpointRouter:   newEndpointRouter(queries),
@@ -242,6 +244,24 @@ func (s *Server) registerOperations() {
 		sessionReq, s.handleAddCredentialBeginHTTP)
 	registerOpHTTP(s.router, "POST", "/api/picotera/me/credentials/register/complete",
 		sessionReq, s.handleAddCredentialCompleteHTTP)
+
+	// Device pairing — short-code flow for adding a passkey on a device
+	// that has no existing credential. Anonymous endpoints are gated by
+	// the pairing object itself (code is bound to the originating session;
+	// approval requires an authenticated /me side).
+	publicReq := contract.AuthRequirement{Kind: contract.AuthPublic}
+	registerOpHTTP(s.router, "POST", "/api/picotera/auth/devices/pair/begin",
+		publicReq, s.handlePairBeginHTTP)
+	registerOpHTTP(s.router, "GET", "/api/picotera/auth/devices/pair/status",
+		publicReq, s.handlePairStatusHTTP)
+	registerOpHTTP(s.router, "POST", "/api/picotera/auth/devices/pair/complete",
+		publicReq, s.handlePairCompleteHTTP)
+	registerOpHTTP(s.router, "GET", "/api/picotera/me/devices/pair/lookup",
+		sessionReq, s.handlePairLookupHTTP)
+	registerOpHTTP(s.router, "POST", "/api/picotera/me/devices/pair/approve",
+		sessionReq, s.handlePairApproveHTTP)
+	registerOpHTTP(s.router, "POST", "/api/picotera/me/devices/pair/cancel",
+		sessionReq, s.handlePairCancelHTTP)
 
 	// Providers — all admin
 	registerOp(mgmt, contract.OperationListProviders, s.handleListProviders, admin)
